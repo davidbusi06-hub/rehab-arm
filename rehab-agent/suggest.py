@@ -26,7 +26,7 @@ Suggestion JSON schema (written to ``data/suggestions/<patient>_next.json``)::
 
 ``assist_level`` is the arm's assist torque cap in percent (rehab_arm.py
 applies it as the cap for the next session). ``current`` is the cap the
-latest session ran with, read from its ``assist_cap_pct`` via analysis.py.
+latest session ran with, read from its ``assist_cap`` via analysis.py.
 
 NOTE (flagged to Person B's human): this suggestion schema is inferred.
 The brief's *session* contract is confirmed against the data files, but
@@ -100,9 +100,9 @@ def make_suggestion(patient_id):
         }
 
     latest = trend[-1]
-    cap_known = latest["assist_cap_pct"] is not None
+    cap_known = latest["assist_cap"] is not None
     current = {
-        "assist_level": latest["assist_cap_pct"] if cap_known else ARM_DEFAULT_ASSIST_CAP,
+        "assist_level": latest["assist_cap"] if cap_known else ARM_DEFAULT_ASSIST_CAP,
         "target_reps": latest["target_reps"],
     }
     # Start from "no change" and let the rules move the knobs.

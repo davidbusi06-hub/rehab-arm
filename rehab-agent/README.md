@@ -26,7 +26,7 @@ and chart renders even when the model is offline.
   only when the therapist presses **Approve** in the dashboard (they may edit
   the values first).
 - Session JSON in `data/sessions/` follows the brief's data contract, plus an
-  optional top-level `assist_cap_pct` (the torque cap the arm ran with), which
+  optional top-level `assist_cap` (the torque cap the arm ran with), which
   `validate.py` checks when present.
 
 ## Running it
@@ -69,7 +69,7 @@ All read from `analysis.patient_trend(patient_id)`:
 - **Otherwise** — hold the plan steady.
 
 `assist_level` is the arm's assist **torque cap** in percent. `current` is the
-cap the latest session ran with (`assist_cap_pct` in the session file, exposed
+cap the latest session ran with (`assist_cap` in the session file, exposed
 by `analysis.session_stats`); sessions recorded before the arm wrote it are
 assumed to have used the arm's 45% default. Suggested values stay within 0–100.
 

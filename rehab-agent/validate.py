@@ -103,10 +103,10 @@ def validate_file(path):
         problems.append("target_reps: missing or not a positive integer")
 
     # Optional: older sessions predate it. When present it must be a percent.
-    if "assist_cap_pct" in session:
-        cap = session["assist_cap_pct"]
+    if "assist_cap" in session:
+        cap = session["assist_cap"]
         if not _is_number(cap) or not (ASSIST_MIN <= cap <= ASSIST_MAX):
-            problems.append(f"assist_cap_pct: expected a number from {ASSIST_MIN} to {ASSIST_MAX}, got {cap!r}")
+            problems.append(f"assist_cap: expected a number from {ASSIST_MIN} to {ASSIST_MAX}, got {cap!r}")
 
     reps = session.get("reps")
     if not isinstance(reps, list):

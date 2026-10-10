@@ -3,6 +3,8 @@
     python -m unittest test_suggestions -v
 """
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -213,9 +215,9 @@ class DashboardLoop(Base):
 
     def test_session_file_records_its_cap_and_validates(self):
         path = self.arm_session(1, cap=30.0)
-        self.assertEqual(json.loads(path.read_text())["assist_cap_pct"], 30.0)
+        self.assertEqual(json.loads(path.read_text())["assist_cap"], 30.0)
         self.assertEqual(validate.validate_file(path), [])
-        self.assertEqual(analysis.session_stats(json.loads(path.read_text()))["assist_cap_pct"], 30.0)
+        self.assertEqual(analysis.session_stats(json.loads(path.read_text()))["assist_cap"], 30.0)
 
     def test_validate_checks_the_cap_only_when_present(self):
         self.write_session(1)                       # older file, no cap
@@ -225,9 +227,9 @@ class DashboardLoop(Base):
                 path = self.out / "session_002.json"
                 path.unlink(missing_ok=True)
                 data = {"session_id": 2, "patient_id": "p01", "started_at": "2026-10-10T09:00:00",
-                        "target_reps": 10, "assist_cap_pct": bad, "reps": []}
+                        "target_reps": 10, "assist_cap": bad, "reps": []}
                 path.write_text(json.dumps(data))
-                self.assertTrue(any("assist_cap_pct" in p for p in validate.validate_file(path)))
+                self.assertTrue(any("assist_cap" in p for p in validate.validate_file(path)))
 
     def test_current_is_the_cap_not_the_average_assist(self):
         self.arm_session(1, cap=30.0, assist=20.0)
@@ -269,6 +271,25 @@ class DashboardLoop(Base):
         for sid, share in enumerate((40.0, 35.0, 30.0, 25.0), start=1):
             self.arm_session(sid, cap=3.0, assist=share)
         self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], 0.0)
+
+
+class SessionFile(Base):
+    def test_records_the_assist_cap_it_ran_with(self):
+        rep = {"rom_deg": 60.0, "assist_pct": 41.0, "peak_resistance": 25.0, "safety_stop": False}
+        path = rehab_arm.write_session(self.out, 8, "p01", "2026-10-10T09:00:00", 10, [rep], 22.44)
+        data = json.loads(path.read_text())
+        self.assertEqual(data["assist_cap"], 22.4)
+        self.assertEqual(data["reps"], [rep])
+
+    def test_session_command_writes_the_applied_cap(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 30.0, "target_reps": 2}))
+        self.write_session(7)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rehab_arm.cmd_session(self.args(sim=True, joint="elbow_flex", target_rom=60.0, direction=0,
+                                            resistance=0.0, max_minutes=15.0, session_id=None,
+                                            free_others=False, port=None))
+        data = json.loads((self.out / "session_008.json").read_text())
+        self.assertEqual((data["assist_cap"], data["target_reps"]), (30.0, 2))
 
 
 if __name__ == "__main__":

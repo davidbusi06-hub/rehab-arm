@@ -13,6 +13,10 @@ How the contract fields are measured:
     peak_resistance  peak motor load in the rep, percent of max torque
     safety_stop      a safety stop fired during the rep
 
+One field is added on top of the contract, per session rather than per rep:
+    assist_cap       the assist torque cap the session ran with, percent of
+                     max torque; this is what a suggestion's assist_level sets
+
 Usage:
     python rehab_arm.py monitor
     python rehab_arm.py session --patient p03 --out DIR
@@ -287,9 +291,7 @@ def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps
         "patient_id": patient_id,
         "started_at": started_at,
         "target_reps": target_reps,
-        # the torque cap this session ran with; the dashboard steps the next
-        # session's cap from it
-        "assist_cap_pct": round(assist_cap, 1),
+        "assist_cap": round(assist_cap, 1),
         "reps": reps,
     }
     path.write_text(json.dumps(session, indent=2) + "\n")
@@ -384,7 +386,7 @@ def resolve_settings(args):
     lower cap would leave the arm unable to help.
 
     assist_level is a torque cap in percent on both sides: each session file
-    records the cap it ran with (assist_cap_pct) and the dashboard's
+    records the cap it ran with (assist_cap) and the dashboard's
     suggestion steps the next cap from that, so the number approved here is
     the number the arm applies (subject to the floor and ceiling above).
     """
@@ -487,8 +489,7 @@ def cmd_session(args):
     if not reps:
         print("No reps completed; no session file written.")
         return
-    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps,
-                         cfg.assist_max)
+    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps, cfg.assist_max)
     print(f"Wrote {len(reps)}/{cfg.target_reps} reps to {path}")
 
 

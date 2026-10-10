@@ -78,12 +78,14 @@ the arm is too weak to help at all (an explicit `--assist-max` under 15 still
 wins).
 `--ignore-suggestion` skips the file entirely.
 
-`assist_level` is a torque cap in percent on both sides. Each session file
-records the cap it ran with as `assist_cap_pct`, and the dashboard's
-`suggest.py` starts the next suggestion from that cap and moves it in steps of
-5 points, so "hold steady" keeps the cap where it was and the number the
-therapist approves is the number the arm applies (within the floor and ceiling
-above). Sessions recorded before `assist_cap_pct` existed are assumed to have
+Each session file records the cap it actually ran with as a top-level
+`assist_cap` (percent of max torque, after the floor, ceiling and any
+suggestion were applied). It is the same quantity as a suggestion's
+`assist_level`: the dashboard's `suggest.py` starts the next suggestion from
+the latest session's `assist_cap` and moves it in steps of 5 points, so "hold
+steady" keeps the cap where it was and the number the therapist approves is
+the number the arm applies (within the floor and ceiling above). Session files
+written before this field existed do not have it; the dashboard assumes they
 used the 45% default.
 
 Tests (no hardware needed): `python -m unittest test_suggestions -v`.
