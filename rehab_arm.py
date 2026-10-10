@@ -467,24 +467,34 @@ def cmd_session(args):
     except (IOError, ValueError) as exc:
         print(f"Session aborted: {exc}")
     finally:
-        stuck = release(bus, [cfg.joint_id])
+        release(bus, [cfg.joint_id])
         if not args.sim and not args.free_others:
-            if sys.stdin.isatty():
-                input("Support the arm, then press Enter to release the other joints. ")
-            else:
-                print("Releasing the other joints in 5 s - support the arm.")
-                bus.sleep(5)
-        stuck += release(bus, others)
-        try:
-            bus.set_torque_limit(cfg.joint_id, original_limit)
-        except IOError:
-            pass
-        try:
-            # speed/acceleration live in motor RAM and would otherwise stay capped
-            bus.restore_motion_profile(cfg.joint_id, original_profile)
-        except IOError:
-            print(f"WARNING: could not restore the speed profile of motor {cfg.joint_id}; "
-                  "power-cycle the arm to clear the speed cap.")
+            try:
+                if sys.stdin.isatty():
+                    input("Support the arm, then press Enter to release the other joints. ")
+                else:
+                    print("Releasing the other joints in 5 s - support the arm.")
+                    bus.sleep(5)
+            except (KeyboardInterrupt, EOFError):
+                # Ctrl-C or a closed terminal here must still let go of the arm
+                # and keep the reps, not die with five joints powered.
+                print("\nInterrupted; releasing the other joints now.")
+        while True:
+            try:
+                stuck = release(bus, [cfg.joint_id] + others)
+                try:
+                    bus.set_torque_limit(cfg.joint_id, original_limit)
+                except IOError:
+                    pass
+                try:
+                    # speed/acceleration live in motor RAM and would otherwise stay capped
+                    bus.restore_motion_profile(cfg.joint_id, original_profile)
+                except IOError:
+                    print(f"WARNING: could not restore the speed profile of motor {cfg.joint_id}; "
+                          "power-cycle the arm to clear the speed cap.")
+                break
+            except KeyboardInterrupt:
+                continue  # a second Ctrl-C must not cut the release short either
         bus.close()
         if stuck:
             print(f"WARNING: could not release motors {stuck}; they may still be powered. "

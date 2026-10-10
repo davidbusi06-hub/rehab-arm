@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from unittest import mock
 
 import rehab_arm
 from rehab_arm import Config, SuggestionError, read_approved_suggestion, resolve_settings, run_session
@@ -208,6 +209,56 @@ class SessionFile(Base):
                                             free_others=False, port=None))
         data = json.loads((self.out / "session_008.json").read_text())
         self.assertEqual((data["assist_cap"], data["target_reps"]), (30.0, 2))
+
+
+class RecordingBus(SimBus):
+    """Stands in for the real arm: a patient who needs no help, and a record of what was let go."""
+
+    def __init__(self, port):
+        super().__init__(60.0, abilities=[60, 60])
+        self.released = set()
+        self.interrupt_next_release = False
+        RecordingBus.last = self
+
+    def set_torque(self, sid, on):
+        if not on and self.interrupt_next_release:
+            self.interrupt_next_release = False
+            raise KeyboardInterrupt
+        super().set_torque(sid, on)
+        (self.released.discard if on else self.released.add)(sid)
+
+
+class InterruptedRelease(Base):
+    def run_interrupted(self, interruption, tty=True, second_interrupt=False):
+        def interrupt(*_):
+            RecordingBus.last.interrupt_next_release = second_interrupt
+            raise interruption
+
+        args = self.args(sim=False, joint="elbow_flex", target_rom=60.0, direction=0, resistance=0.0,
+                         max_minutes=15.0, session_id=None, free_others=False, port="unused", reps=2)
+        with mock.patch.object(rehab_arm, "FeetechBus", RecordingBus), \
+                mock.patch("builtins.input", side_effect=interrupt), \
+                mock.patch.object(RecordingBus, "sleep", autospec=True,
+                                  side_effect=lambda bus, s: interrupt() if s == 5 else SimBus.sleep(bus, s)), \
+                mock.patch.object(rehab_arm.sys, "stdin", mock.Mock(isatty=lambda: tty)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rehab_arm.cmd_session(args)
+        return RecordingBus.last
+
+    def check_let_go_and_saved(self, bus, session_id):
+        self.assertEqual(bus.released, set(JOINTS.values()))
+        self.assertEqual(bus.get_motion_profile(JOINTS["elbow_flex"]), (0, 0))
+        data = json.loads((self.out / f"session_{session_id:03d}.json").read_text())
+        self.assertEqual(len(data["reps"]), 2)
+
+    def test_interrupt_at_the_release_prompt_still_releases_and_saves(self):
+        cases = [(KeyboardInterrupt, True), (EOFError, True), (KeyboardInterrupt, False)]
+        for session_id, (interruption, tty) in enumerate(cases, start=1):
+            with self.subTest(interruption=interruption.__name__, tty=tty):
+                self.check_let_go_and_saved(self.run_interrupted(interruption, tty), session_id)
+
+    def test_second_interrupt_during_the_release_is_retried(self):
+        self.check_let_go_and_saved(self.run_interrupted(KeyboardInterrupt, second_interrupt=True), 1)
 
 
 if __name__ == "__main__":
