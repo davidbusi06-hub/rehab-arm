@@ -10,7 +10,8 @@ from argparse import Namespace
 from pathlib import Path
 
 import rehab_arm
-from rehab_arm import SuggestionError, read_approved_suggestion, resolve_settings
+from rehab_arm import Config, SuggestionError, read_approved_suggestion, resolve_settings, run_session
+from servo import JOINTS, SimBus
 
 
 def suggestion(**overrides):
@@ -142,6 +143,19 @@ class Resolve(Base):
         _, cap, _ = resolve_settings(self.args(assist_max=15.0))
         self.assertEqual(cap, 15.0)
 
+    def test_assist_below_the_floor_is_raised(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 0.0, "target_reps": 30}))
+        self.write_session(7)
+        _, cap, notes = resolve_settings(self.args())
+        self.assertEqual(cap, rehab_arm.DEFAULT_ASSIST_MIN)
+        self.assertTrue(any("WARNING" in n and "raised" in n for n in notes))
+
+    def test_operator_ceiling_below_the_floor_still_wins(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 5.0, "target_reps": 30}))
+        self.write_session(7)
+        _, cap, _ = resolve_settings(self.args(assist_max=10.0))
+        self.assertEqual(cap, 10.0)
+
     def test_explicit_reps_override_the_suggestion(self):
         self.write_suggestion(suggestion())
         self.write_session(7)
@@ -161,6 +175,18 @@ class Resolve(Base):
         self.write_session(7)
         reps, _, _ = resolve_settings(self.args(suggestions=str(other)))
         self.assertEqual(reps, 32)
+
+
+class NoAssist(unittest.TestCase):
+    def test_zero_cap_ends_the_rep_instead_of_rearming(self):
+        cfg = Config(joint_id=JOINTS["elbow_flex"], target_rom=60.0, target_reps=3,
+                     assist_min=0.0, assist_max=0.0)
+        log = []
+        reps = run_session(SimBus(60.0, abilities=[35, 42, 60]), cfg, log=log.append)
+        self.assertEqual(len(reps), 3)
+        self.assertEqual(sum("assist is off" in line for line in log), 2)
+        self.assertFalse(any("assisting" in line for line in log))
+        self.assertEqual([r["assist_pct"] for r in reps], [0.0, 0.0, 0.0])
 
 
 if __name__ == "__main__":

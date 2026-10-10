@@ -36,6 +36,9 @@ DEFAULT_REPS = 10
 # suggestion's assist level: the dashboard can ask for less, never for more
 # than the operator allowed on the command line.
 DEFAULT_ASSIST_MAX = 45.0
+# Percent torque the assist starts at, and the floor for an approved
+# suggestion's assist level: below this the arm is too weak to help at all.
+DEFAULT_ASSIST_MIN = 15.0
 # The follower's USB adapter by serial number, so it survives re-plugging
 # (the /dev/ttyACM* numbers depend on plug-in order).
 FOLLOWER_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C125047-if00"
@@ -48,8 +51,8 @@ class Config:
     target_reps: int
     direction: int = 0            # +1/-1 in encoder ticks; 0 = learn from first movement
     resistance: float = 0.0       # % torque pulling back to start on the way out; 0 = free
-    assist_min: float = 15.0      # % torque when assist first engages
-    assist_max: float = 45.0      # % torque assist may ramp up to
+    assist_min: float = DEFAULT_ASSIST_MIN  # % torque when assist first engages
+    assist_max: float = DEFAULT_ASSIST_MAX  # % torque assist may ramp up to; 0 = never assist
     assist_step: float = 5.0
     ramp_interval: float = 0.4    # s between ramp steps while still stalled
     assist_speed: float = 20.0    # deg/s the arm travels when assisting
@@ -220,6 +223,11 @@ def run_session(bus, cfg, log=print):
                 elif speed < cfg.stall_speed:
                     if stall_since is None:
                         stall_since = now
+                    elif now - stall_since >= cfg.stall_time and cfg.assist_min <= 0:
+                        # nothing to engage; end the rep instead of re-arming every tick
+                        log(f"  Stalled at {exc:.0f} deg; assist is off, return to the start.")
+                        free()
+                        state = RETURN
                     elif now - stall_since >= cfg.stall_time:
                         assist_level = cfg.assist_min
                         rep.assist_from = exc
@@ -367,7 +375,10 @@ def resolve_settings(args):
     Precedence for each value: explicit command-line flag, then the approved
     suggestion, then the built-in default. The suggestion's assist level is
     applied as the cap on assist torque, limited by --assist-max (default 45),
-    so an approved level above the operator's ceiling is clamped, loudly.
+    so an approved level above the operator's ceiling is clamped, loudly. A
+    level below DEFAULT_ASSIST_MIN is raised to it (still within the ceiling):
+    the dashboard's numbers routinely fall that low (see the caveat) and a
+    lower cap would leave the arm unable to help.
 
     UNIT CAVEAT: the dashboard seeds assist_level from the average of a rep's
     assist_pct, which is the share of the rep's range of motion the arm moved
@@ -397,7 +408,11 @@ def resolve_settings(args):
         target_reps = approved["target_reps"]
     else:
         notes.append(f"--reps {args.reps} overrides the approved target of {approved['target_reps']} reps.")
-    assist_cap = min(approved["assist_level"], ceiling)
+    floor = min(DEFAULT_ASSIST_MIN, ceiling)
+    assist_cap = max(floor, min(approved["assist_level"], ceiling))
+    if approved["assist_level"] < floor:
+        notes.append(f"WARNING: approved assist level {approved['assist_level']:g}% is below the "
+                     f"{floor:g}% the arm needs to help at all; raised to {floor:g}%.")
     if approved["assist_level"] > ceiling:
         notes.append(f"WARNING: approved assist level {approved['assist_level']:g}% exceeds the "
                      f"{ceiling:g}% ceiling; clamped. Raise --assist-max deliberately to allow more.")

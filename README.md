@@ -73,14 +73,19 @@ and, if there is one, runs with its `assist_level` and `target_reps`:
 An explicit `--reps` wins over the suggestion. `--assist-max` (default 45) is a
 **ceiling**: an approved level above it is clamped with a warning, so the
 dashboard can ask for less assist but never for more than the operator allowed.
+An approved level below 15% is raised to 15% with a warning, because below that
+the arm is too weak to help at all (an explicit `--assist-max` under 15 still
+wins).
 `--ignore-suggestion` skips the file entirely.
 
 **Unit caveat (open question).** The dashboard seeds `assist_level` from the
 average `assist_pct`, which is the share of the range of motion the arm moved,
 but the arm applies it as a torque cap in percent. They are different
 quantities, so a "raise assist" suggestion can still land below the default 45%
-cap. Treat the numbers as a conservative upper bound until the team decides what
-`assist_level` should mean; the mapping lives in `resolve_settings()`.
+cap, and approving "hold steady" repeatedly walks the cap down to the 15% floor,
+where the arm may be too weak to finish the movement. Treat the numbers as a
+conservative upper bound until the team decides what `assist_level` should
+mean; the mapping lives in `resolve_settings()`.
 
 Tests (no hardware needed): `python -m unittest test_suggestions -v`.
 
