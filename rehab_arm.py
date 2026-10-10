@@ -301,6 +301,10 @@ def cmd_session(args):
     else:
         bus = FeetechBus(args.port)
     original_limit = bus.get_torque_limit(cfg.joint_id)
+    original_profile = bus.get_motion_profile(cfg.joint_id)
+    if original_profile[1]:
+        print(f"Note: joint already has a speed cap of {original_profile[1] * DEG_PER_TICK:.0f} deg/s "
+              "left by an earlier program; it will be put back as found. Power-cycle the arm to clear it.")
     reps = []
     try:
         if not args.free_others:
@@ -322,6 +326,12 @@ def cmd_session(args):
             bus.set_torque_limit(cfg.joint_id, original_limit)
         except IOError:
             pass
+        try:
+            # speed/acceleration live in motor RAM and would otherwise stay capped
+            bus.restore_motion_profile(cfg.joint_id, original_profile)
+        except IOError:
+            print(f"WARNING: could not restore the speed profile of motor {cfg.joint_id}; "
+                  "power-cycle the arm to clear the speed cap.")
         bus.close()
         if stuck:
             print(f"WARNING: could not release motors {stuck}; they may still be powered. "
