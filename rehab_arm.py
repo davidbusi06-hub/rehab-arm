@@ -68,6 +68,7 @@ class Config:
     backdrive_margin: float = 6.0  # deg pushed back against assist -> safety stop
     max_speed: float = 150.0      # deg/s -> safety stop
     overshoot: float = 15.0       # deg beyond start/target -> safety stop
+    stop_margin: float = 3.0      # deg the target must stay short of a mechanical end stop
     max_temp: int = 65            # deg C -> safety stop
     max_minutes: float = 15.0
     rate: float = 50.0            # control loop Hz
@@ -103,13 +104,21 @@ def run_session(bus, cfg, log=print):
     home = first.pos
 
     low_tick, high_tick = bus.position_bounds(j)
+    travel = bus.travel_limits(j)
+    needed = cfg.target_rom + cfg.stop_margin
+
+    def room(direction):
+        """Degrees from the start to the joint's calibrated end stop in this direction."""
+        low_stop, high_stop = travel
+        return max(0.0, ((high_stop - home) if direction > 0 else (home - low_stop)) * DEG_PER_TICK)
 
     def check_room(direction):
-        """Refuse to run if the assist target would lie past the encoder's seam.
+        """Refuse to run if the target cannot be reached in this direction.
 
         Only the outbound side matters: the motor must be able to be sent to
         the target. Wrapping behind the start just reads as out of range and
-        trips a safety stop.
+        trips a safety stop. A target past a mechanical end stop would have
+        the assist push into the stop on every rep.
         """
         reach = home + direction * (cfg.target_rom + cfg.overshoot) / DEG_PER_TICK
         if not low_tick <= reach <= high_tick:
@@ -117,9 +126,25 @@ def run_session(bus, cfg, log=print):
                 f"start position ({home} ticks, usable {low_tick} to {high_tick}) is too close to the "
                 "encoder wrap-around to move that far in this direction; start with the joint nearer mid-range"
             )
+        if travel and room(direction) < needed:
+            raise ValueError(
+                f"the joint reaches its end stop after {room(direction):.0f} deg in this direction, short of "
+                f"the {cfg.target_rom:.0f} deg target (it has {room(-direction):.0f} deg the other way); "
+                "move it the other way, start nearer mid-range, or lower --target-rom"
+            )
 
     if cfg.direction:
         check_room(cfg.direction)
+    elif travel:
+        fits = [d for d in (1, -1) if room(d) >= needed]
+        if not fits:
+            raise ValueError(
+                f"the joint has only {room(1):.0f} and {room(-1):.0f} deg of travel from here to its end "
+                f"stops, short of the {cfg.target_rom:.0f} deg target either way; lower --target-rom"
+            )
+        if len(fits) == 1:
+            log(f"Note: only one direction has room for the {cfg.target_rom:.0f} deg target from here "
+                f"({room(fits[0]):.0f} deg; the other way hits its end stop after {room(-fits[0]):.0f} deg).")
 
     def free():
         bus.set_torque(j, False)

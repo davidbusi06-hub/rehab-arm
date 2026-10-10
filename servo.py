@@ -27,6 +27,8 @@ JOINTS = {
 }
 
 # STS3215 control table. Everything written is in RAM, so nothing survives a power cycle.
+ADDR_MIN_POSITION_LIMIT = 9   # EEPROM, set by lerobot-calibrate; only ever read here
+ADDR_MAX_POSITION_LIMIT = 11  # EEPROM, set by lerobot-calibrate; only ever read here
 ADDR_HOMING_OFFSET = 31  # EEPROM; only ever read here
 ADDR_TORQUE_ENABLE = 40
 ADDR_ACCELERATION = 41
@@ -120,6 +122,23 @@ class FeetechBus:
         offset = _signed(value, 11)
         return -offset, TICKS_PER_REV - 1 - offset
 
+    def travel_limits(self, sid):
+        """(lowest, highest) position between this joint's mechanical end stops, or None.
+
+        lerobot-calibrate stores the range swept during calibration in the
+        motor, in the same units read() reports. None means the motor has no
+        such range: it was never calibrated, or it is a full-turn joint.
+        """
+        low, result, _ = self._pk.read2ByteTxRx(self._ph, sid, ADDR_MIN_POSITION_LIMIT)
+        if result != self._scs.COMM_SUCCESS:
+            raise IOError(f"could not read position limits of motor {sid}")
+        high, result, _ = self._pk.read2ByteTxRx(self._ph, sid, ADDR_MAX_POSITION_LIMIT)
+        if result != self._scs.COMM_SUCCESS:
+            raise IOError(f"could not read position limits of motor {sid}")
+        if high <= low or high - low >= TICKS_PER_REV - 1:
+            return None
+        return low, high
+
     def set_torque_limit(self, sid, pct):
         self._write(sid, ADDR_TORQUE_LIMIT, max(0, min(1000, round(pct * 10))), 2)
 
@@ -176,7 +195,7 @@ class SimBus:
     ASSIST_SPEED = 15.0    # deg/s
     GIVE_UP_AFTER = 15.0   # s stalled before the patient goes back anyway
 
-    def __init__(self, target_rom, abilities, needed_assist=25.0, spasm_rep=None, home=2048):
+    def __init__(self, target_rom, abilities, needed_assist=25.0, spasm_rep=None, home=2048, travel=None):
         self.target_rom = target_rom
         self.abilities = abilities
         self.needed_assist = needed_assist
@@ -189,6 +208,7 @@ class SimBus:
         self._goal = home
         self._limit = 100.0
         self._profile = (0, 0)  # (acceleration, goal velocity ticks/s), motor power-on default
+        self._travel = travel  # (lowest, highest) tick between end stops; None = unlimited
         self._phase = "rest"
         self._rest = 1.0
         self._waited = 0.0
@@ -254,6 +274,9 @@ class SimBus:
 
     def position_bounds(self, sid):
         return 0, TICKS_PER_REV - 1
+
+    def travel_limits(self, sid):
+        return self._travel
 
     def set_motion_profile(self, sid, speed_deg_s, acceleration):
         self._profile = (acceleration, round(speed_deg_s / DEG_PER_TICK))

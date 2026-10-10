@@ -211,6 +211,50 @@ class SessionFile(Base):
         self.assertEqual((data["assist_cap"], data["target_reps"]), (30.0, 2))
 
 
+class EndStops(unittest.TestCase):
+    def run_with(self, travel, direction=0):
+        cfg = Config(joint_id=JOINTS["elbow_flex"], target_rom=60.0, target_reps=2, direction=direction)
+        log = []
+        bus = SimBus(60.0, abilities=[60, 60], travel=travel)  # the simulated patient moves towards higher ticks
+        return run_session(bus, cfg, log=log.append), log
+
+    def test_no_calibrated_range_means_no_check(self):
+        reps, _ = self.run_with(None)
+        self.assertEqual(len(reps), 2)
+
+    def test_target_within_the_stops_runs(self):
+        reps, log = self.run_with((0, 4095))
+        self.assertEqual(len(reps), 2)
+        self.assertFalse(any("Note" in line for line in log))
+
+    def test_known_direction_past_the_stop_is_refused_before_starting(self):
+        with self.assertRaisesRegex(ValueError, "end stop after 53 deg"):
+            self.run_with((0, 2048 + 600), direction=1)
+
+    def test_moving_towards_the_near_stop_aborts(self):
+        cfg = Config(joint_id=JOINTS["elbow_flex"], target_rom=60.0, target_reps=2)
+        log = []
+        with self.assertRaisesRegex(ValueError, "180 deg the other way"):
+            run_session(SimBus(60.0, abilities=[60, 60], travel=(0, 2048 + 600)), cfg, log=log.append)
+        self.assertTrue(any("only one direction has room" in line for line in log))
+
+    def test_target_reachable_only_the_other_way_runs_that_way(self):
+        reps, log = self.run_with((2048 - 600, 4095))
+        self.assertEqual(len(reps), 2)
+        self.assertTrue(any("only one direction has room" in line for line in log))
+
+    def test_no_room_either_way_is_refused_before_starting(self):
+        with self.assertRaisesRegex(ValueError, "either way"):
+            self.run_with((2048 - 300, 2048 + 300))
+
+    def test_target_must_stay_short_of_the_stop_by_the_margin(self):
+        ticks_per_deg = 4096 / 360
+        with self.assertRaises(ValueError):
+            self.run_with((0, 2048 + round(62 * ticks_per_deg)), direction=1)
+        reps, _ = self.run_with((0, 2048 + round(64 * ticks_per_deg)), direction=1)
+        self.assertEqual(len(reps), 2)
+
+
 class RecordingBus(SimBus):
     """Stands in for the real arm: a patient who needs no help, and a record of what was let go."""
 
