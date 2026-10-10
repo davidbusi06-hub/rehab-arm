@@ -276,7 +276,7 @@ def next_session_id(out_dir):
     return highest + 1
 
 
-def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps):
+def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps, assist_cap):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"session_{session_id:03d}.json"
@@ -287,6 +287,9 @@ def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps
         "patient_id": patient_id,
         "started_at": started_at,
         "target_reps": target_reps,
+        # the torque cap this session ran with; the dashboard steps the next
+        # session's cap from it
+        "assist_cap_pct": round(assist_cap, 1),
         "reps": reps,
     }
     path.write_text(json.dumps(session, indent=2) + "\n")
@@ -380,14 +383,10 @@ def resolve_settings(args):
     the dashboard's numbers routinely fall that low (see the caveat) and a
     lower cap would leave the arm unable to help.
 
-    UNIT CAVEAT: the dashboard seeds assist_level from the average of a rep's
-    assist_pct, which is the share of the rep's range of motion the arm moved
-    (Rep.as_contract), while the arm's assist knob is a torque cap in percent.
-    They are not the same quantity. Mapping the level onto the torque cap is
-    the conservative reading (the arm never pushes harder than the approved
-    number), but a "raise assist" suggestion can end up below the 45% default
-    cap. This is the open assist-unit question between the dashboard and the
-    arm; decide it here, in one place, once it is settled.
+    assist_level is a torque cap in percent on both sides: each session file
+    records the cap it ran with (assist_cap_pct) and the dashboard's
+    suggestion steps the next cap from that, so the number approved here is
+    the number the arm applies (subject to the floor and ceiling above).
     """
     notes = []
     ceiling = DEFAULT_ASSIST_MAX if args.assist_max is None else args.assist_max
@@ -488,7 +487,8 @@ def cmd_session(args):
     if not reps:
         print("No reps completed; no session file written.")
         return
-    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps)
+    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps,
+                         cfg.assist_max)
     print(f"Wrote {len(reps)}/{cfg.target_reps} reps to {path}")
 
 

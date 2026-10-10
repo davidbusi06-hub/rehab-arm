@@ -60,7 +60,12 @@ def session_stats(session):
     Returns:
         dict with keys:
             session_id, started_at, avg_rom_deg, avg_assist_pct,
-            avg_peak_resistance, completed_reps, target_reps, safety_stops
+            avg_peak_resistance, completed_reps, target_reps, safety_stops,
+            assist_cap_pct
+
+        avg_assist_pct is the share of the movement the robot did;
+        assist_cap_pct is the torque cap (%) the arm ran the session with,
+        or None for sessions recorded before the arm wrote it.
     """
     reps = session.get("reps", [])
     return {
@@ -72,6 +77,7 @@ def session_stats(session):
         "completed_reps": len(reps),
         "target_reps": session["target_reps"],
         "safety_stops": sum(1 for r in reps if r.get("safety_stop")),
+        "assist_cap_pct": session.get("assist_cap_pct"),
     }
 
 

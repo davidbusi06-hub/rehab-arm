@@ -148,12 +148,12 @@ with tab_suggest:
         col_now, col_next = st.columns(2)
         with col_now:
             st.markdown("**Current (latest session)**")
-            st.metric("Assist level", f"{cur['assist_level']}%")
+            st.metric("Assist cap (torque)", f"{cur['assist_level']}%")
             st.metric("Target reps", cur["target_reps"])
         with col_next:
             st.markdown("**Suggested — edit before approving**")
             new_assist = st.number_input(
-                "Assist level (%)",
+                "Assist cap (% torque)",
                 min_value=0.0, max_value=100.0,
                 value=float(sug["assist_level"]), step=1.0,
             )

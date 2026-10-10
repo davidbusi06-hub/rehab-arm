@@ -4,6 +4,7 @@
 """
 
 import json
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -12,6 +13,12 @@ from pathlib import Path
 import rehab_arm
 from rehab_arm import Config, SuggestionError, read_approved_suggestion, resolve_settings, run_session
 from servo import JOINTS, SimBus
+
+# The dashboard lives in this repo too; test the arm against its real modules.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "rehab-agent"))
+import analysis  # noqa: E402
+import suggest  # noqa: E402
+import validate  # noqa: E402
 
 
 def suggestion(**overrides):
@@ -187,6 +194,81 @@ class NoAssist(unittest.TestCase):
         self.assertEqual(sum("assist is off" in line for line in log), 2)
         self.assertFalse(any("assisting" in line for line in log))
         self.assertEqual([r["assist_pct"] for r in reps], [0.0, 0.0, 0.0])
+
+
+class DashboardLoop(Base):
+    """Arm session file -> analysis -> suggest -> approve -> arm settings."""
+
+    def setUp(self):
+        super().setUp()
+        for module, attr, value in ((analysis, "DATA_DIR", self.out), (suggest, "SUGGEST_DIR", self.sugg)):
+            self.addCleanup(setattr, module, attr, getattr(module, attr))
+            setattr(module, attr, value)
+
+    def arm_session(self, session_id, cap, done=10, target=10, assist=20.0, stops=0):
+        reps = [{"rom_deg": 60.0, "assist_pct": assist, "peak_resistance": 5.0, "safety_stop": i < stops}
+                for i in range(done)]
+        return rehab_arm.write_session(self.out, session_id, "p01", "2026-10-10T09:00:00",
+                                       target, reps, cap)
+
+    def test_session_file_records_its_cap_and_validates(self):
+        path = self.arm_session(1, cap=30.0)
+        self.assertEqual(json.loads(path.read_text())["assist_cap_pct"], 30.0)
+        self.assertEqual(validate.validate_file(path), [])
+        self.assertEqual(analysis.session_stats(json.loads(path.read_text()))["assist_cap_pct"], 30.0)
+
+    def test_validate_checks_the_cap_only_when_present(self):
+        self.write_session(1)                       # older file, no cap
+        self.assertEqual(validate.validate_file(self.out / "session_001.json"), [])
+        for bad in (-5, 120, "30", True, None):
+            with self.subTest(cap=bad):
+                path = self.out / "session_002.json"
+                path.unlink(missing_ok=True)
+                data = {"session_id": 2, "patient_id": "p01", "started_at": "2026-10-10T09:00:00",
+                        "target_reps": 10, "assist_cap_pct": bad, "reps": []}
+                path.write_text(json.dumps(data))
+                self.assertTrue(any("assist_cap_pct" in p for p in validate.validate_file(path)))
+
+    def test_current_is_the_cap_not_the_average_assist(self):
+        self.arm_session(1, cap=30.0, assist=20.0)
+        s = suggest.make_suggestion("p01")
+        self.assertEqual(s["current"]["assist_level"], 30.0)
+
+    def test_hold_steady_keeps_the_cap_through_the_loop(self):
+        self.arm_session(1, cap=30.0)
+        s = suggest.make_suggestion("p01")
+        self.assertEqual(s["suggested"], {"assist_level": 30.0, "target_reps": 10})
+        suggest.approve("p01", s["suggested"])
+        reps, cap, _ = resolve_settings(self.args())
+        self.assertEqual((reps, cap), (10, 30.0))
+
+    def test_rules_step_the_cap_by_5(self):
+        self.arm_session(1, cap=30.0, done=8)                        # under target
+        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], 35.0)
+        (self.out / "session_001.json").unlink()
+        self.arm_session(1, cap=30.0, stops=2)                       # safety stops
+        s = suggest.make_suggestion("p01")["suggested"]
+        self.assertEqual(s, {"assist_level": 35.0, "target_reps": 10})
+        (self.out / "session_001.json").unlink()
+        for sid, share in enumerate((40.0, 35.0, 30.0, 25.0), start=1):   # robot doing less
+            self.arm_session(sid, cap=30.0, assist=share)
+        s = suggest.make_suggestion("p01")["suggested"]
+        self.assertEqual(s, {"assist_level": 25.0, "target_reps": 12})
+
+    def test_session_without_a_cap_assumes_the_arm_default(self):
+        self.write_session(1)                       # older file: no cap, 0 of 10 reps
+        s = suggest.make_suggestion("p01")
+        self.assertEqual(s["current"]["assist_level"], suggest.ARM_DEFAULT_ASSIST_CAP)
+        self.assertEqual(s["suggested"]["assist_level"], suggest.ARM_DEFAULT_ASSIST_CAP + 5)
+        self.assertIn("assumed", s["rationale"])
+
+    def test_suggested_cap_stays_within_0_and_100(self):
+        self.arm_session(1, cap=98.0, done=8)
+        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], 100.0)
+        (self.out / "session_001.json").unlink()
+        for sid, share in enumerate((40.0, 35.0, 30.0, 25.0), start=1):
+            self.arm_session(sid, cap=3.0, assist=share)
+        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], 0.0)
 
 
 if __name__ == "__main__":

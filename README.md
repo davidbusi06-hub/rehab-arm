@@ -78,14 +78,13 @@ the arm is too weak to help at all (an explicit `--assist-max` under 15 still
 wins).
 `--ignore-suggestion` skips the file entirely.
 
-**Unit caveat (open question).** The dashboard seeds `assist_level` from the
-average `assist_pct`, which is the share of the range of motion the arm moved,
-but the arm applies it as a torque cap in percent. They are different
-quantities, so a "raise assist" suggestion can still land below the default 45%
-cap, and approving "hold steady" repeatedly walks the cap down to the 15% floor,
-where the arm may be too weak to finish the movement. Treat the numbers as a
-conservative upper bound until the team decides what `assist_level` should
-mean; the mapping lives in `resolve_settings()`.
+`assist_level` is a torque cap in percent on both sides. Each session file
+records the cap it ran with as `assist_cap_pct`, and the dashboard's
+`suggest.py` starts the next suggestion from that cap and moves it in steps of
+5 points, so "hold steady" keeps the cap where it was and the number the
+therapist approves is the number the arm applies (within the floor and ceiling
+above). Sessions recorded before `assist_cap_pct` existed are assumed to have
+used the 45% default.
 
 Tests (no hardware needed): `python -m unittest test_suggestions -v`.
 
