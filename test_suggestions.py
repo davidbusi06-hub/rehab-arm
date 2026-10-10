@@ -3,6 +3,8 @@
     python -m unittest test_suggestions -v
 """
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -187,6 +189,25 @@ class NoAssist(unittest.TestCase):
         self.assertEqual(sum("assist is off" in line for line in log), 2)
         self.assertFalse(any("assisting" in line for line in log))
         self.assertEqual([r["assist_pct"] for r in reps], [0.0, 0.0, 0.0])
+
+
+class SessionFile(Base):
+    def test_records_the_assist_cap_it_ran_with(self):
+        rep = {"rom_deg": 60.0, "assist_pct": 41.0, "peak_resistance": 25.0, "safety_stop": False}
+        path = rehab_arm.write_session(self.out, 8, "p01", "2026-10-10T09:00:00", 10, [rep], 22.44)
+        data = json.loads(path.read_text())
+        self.assertEqual(data["assist_cap"], 22.4)
+        self.assertEqual(data["reps"], [rep])
+
+    def test_session_command_writes_the_applied_cap(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 30.0, "target_reps": 2}))
+        self.write_session(7)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rehab_arm.cmd_session(self.args(sim=True, joint="elbow_flex", target_rom=60.0, direction=0,
+                                            resistance=0.0, max_minutes=15.0, session_id=None,
+                                            free_others=False, port=None))
+        data = json.loads((self.out / "session_008.json").read_text())
+        self.assertEqual((data["assist_cap"], data["target_reps"]), (30.0, 2))
 
 
 if __name__ == "__main__":

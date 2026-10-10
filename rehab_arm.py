@@ -13,6 +13,10 @@ How the contract fields are measured:
     peak_resistance  peak motor load in the rep, percent of max torque
     safety_stop      a safety stop fired during the rep
 
+One field is added on top of the contract, per session rather than per rep:
+    assist_cap       the assist torque cap the session ran with, percent of
+                     max torque; this is what a suggestion's assist_level sets
+
 Usage:
     python rehab_arm.py monitor
     python rehab_arm.py session --patient p03 --out DIR
@@ -276,7 +280,7 @@ def next_session_id(out_dir):
     return highest + 1
 
 
-def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps):
+def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps, assist_cap):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"session_{session_id:03d}.json"
@@ -287,6 +291,7 @@ def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps
         "patient_id": patient_id,
         "started_at": started_at,
         "target_reps": target_reps,
+        "assist_cap": round(assist_cap, 1),
         "reps": reps,
     }
     path.write_text(json.dumps(session, indent=2) + "\n")
@@ -488,7 +493,7 @@ def cmd_session(args):
     if not reps:
         print("No reps completed; no session file written.")
         return
-    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps)
+    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps, cfg.assist_max)
     print(f"Wrote {len(reps)}/{cfg.target_reps} reps to {path}")
 
 

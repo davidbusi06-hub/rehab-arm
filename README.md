@@ -78,6 +78,13 @@ the arm is too weak to help at all (an explicit `--assist-max` under 15 still
 wins).
 `--ignore-suggestion` skips the file entirely.
 
+Each session file records the cap it actually ran with as a top-level
+`assist_cap` (percent of max torque, after the floor, ceiling and any
+suggestion were applied). It is the same quantity as a suggestion's
+`assist_level`, so the dashboard can seed "current" from the latest session's
+`assist_cap` and step from there. Session files written before this field
+existed do not have it.
+
 **Unit caveat (open question).** The dashboard seeds `assist_level` from the
 average `assist_pct`, which is the share of the range of motion the arm moved,
 but the arm applies it as a torque cap in percent. They are different
