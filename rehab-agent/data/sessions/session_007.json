@@ -1,0 +1,188 @@
+{
+  "session_id": 7,
+  "patient_id": "p01",
+  "started_at": "2026-09-19T09:00:00",
+  "target_reps": 30,
+  "reps": [
+    {
+      "rom_deg": 72.9,
+      "assist_pct": 26.2,
+      "peak_resistance": 15.0,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 74.6,
+      "assist_pct": 23.4,
+      "peak_resistance": 16.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 73.9,
+      "assist_pct": 26.7,
+      "peak_resistance": 14.7,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 70.1,
+      "assist_pct": 27.8,
+      "peak_resistance": 15.6,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 71.0,
+      "assist_pct": 24.2,
+      "peak_resistance": 15.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 75.0,
+      "assist_pct": 28.3,
+      "peak_resistance": 14.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 71.7,
+      "assist_pct": 19.4,
+      "peak_resistance": 15.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 71.1,
+      "assist_pct": 27.8,
+      "peak_resistance": 15.2,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 73.1,
+      "assist_pct": 19.1,
+      "peak_resistance": 16.2,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 72.4,
+      "assist_pct": 24.9,
+      "peak_resistance": 13.9,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 71.9,
+      "assist_pct": 23.7,
+      "peak_resistance": 15.4,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 75.1,
+      "assist_pct": 27.7,
+      "peak_resistance": 15.4,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 72.1,
+      "assist_pct": 22.2,
+      "peak_resistance": 15.8,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 74.9,
+      "assist_pct": 27.9,
+      "peak_resistance": 16.2,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 75.0,
+      "assist_pct": 25.5,
+      "peak_resistance": 15.0,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 72.8,
+      "assist_pct": 24.0,
+      "peak_resistance": 14.8,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 72.4,
+      "assist_pct": 25.2,
+      "peak_resistance": 14.7,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 73.9,
+      "assist_pct": 22.6,
+      "peak_resistance": 16.7,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 70.6,
+      "assist_pct": 28.4,
+      "peak_resistance": 15.6,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 71.7,
+      "assist_pct": 25.5,
+      "peak_resistance": 15.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 64.6,
+      "assist_pct": 21.8,
+      "peak_resistance": 14.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 75.3,
+      "assist_pct": 25.8,
+      "peak_resistance": 13.8,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 73.1,
+      "assist_pct": 17.7,
+      "peak_resistance": 15.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 73.4,
+      "assist_pct": 25.9,
+      "peak_resistance": 15.6,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 71.8,
+      "assist_pct": 21.6,
+      "peak_resistance": 15.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 76.0,
+      "assist_pct": 25.2,
+      "peak_resistance": 14.6,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 70.4,
+      "assist_pct": 21.9,
+      "peak_resistance": 16.6,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 75.4,
+      "assist_pct": 26.4,
+      "peak_resistance": 15.1,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 74.7,
+      "assist_pct": 25.4,
+      "peak_resistance": 14.1,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 68.5,
+      "assist_pct": 21.2,
+      "peak_resistance": 16.2,
+      "safety_stop": false
+    }
+  ]
+}

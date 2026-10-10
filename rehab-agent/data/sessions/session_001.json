@@ -1,0 +1,128 @@
+{
+  "session_id": 1,
+  "patient_id": "p01",
+  "started_at": "2026-09-01T09:00:00",
+  "target_reps": 30,
+  "reps": [
+    {
+      "rom_deg": 54.7,
+      "assist_pct": 54.5,
+      "peak_resistance": 7.9,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 56.4,
+      "assist_pct": 54.6,
+      "peak_resistance": 6.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 55.7,
+      "assist_pct": 54.2,
+      "peak_resistance": 7.8,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 55.2,
+      "assist_pct": 55.7,
+      "peak_resistance": 9.2,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 56.3,
+      "assist_pct": 55.3,
+      "peak_resistance": 7.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 53.0,
+      "assist_pct": 55.7,
+      "peak_resistance": 9.3,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 55.1,
+      "assist_pct": 54.7,
+      "peak_resistance": 8.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 52.1,
+      "assist_pct": 54.1,
+      "peak_resistance": 8.5,
+      "safety_stop": true
+    },
+    {
+      "rom_deg": 56.7,
+      "assist_pct": 54.3,
+      "peak_resistance": 8.4,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 55.5,
+      "assist_pct": 57.3,
+      "peak_resistance": 6.9,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 56.1,
+      "assist_pct": 50.5,
+      "peak_resistance": 5.4,
+      "safety_stop": true
+    },
+    {
+      "rom_deg": 53.8,
+      "assist_pct": 52.3,
+      "peak_resistance": 8.9,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 56.3,
+      "assist_pct": 51.3,
+      "peak_resistance": 8.8,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 53.0,
+      "assist_pct": 54.7,
+      "peak_resistance": 7.7,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 55.2,
+      "assist_pct": 57.5,
+      "peak_resistance": 8.6,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 55.7,
+      "assist_pct": 56.9,
+      "peak_resistance": 8.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 53.7,
+      "assist_pct": 52.8,
+      "peak_resistance": 7.5,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 56.0,
+      "assist_pct": 54.2,
+      "peak_resistance": 10.3,
+      "safety_stop": true
+    },
+    {
+      "rom_deg": 53.4,
+      "assist_pct": 51.7,
+      "peak_resistance": 8.8,
+      "safety_stop": false
+    },
+    {
+      "rom_deg": 57.8,
+      "assist_pct": 56.5,
+      "peak_resistance": 8.8,
+      "safety_stop": false
+    }
+  ]
+}
