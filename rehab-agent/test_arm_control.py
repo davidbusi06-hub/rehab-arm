@@ -75,5 +75,37 @@ class RunSummary(unittest.TestCase):
         self.assertEqual(arm_control.status_flags(16 | 32), ["angle limit", "overload"])
 
 
+class SpokenReplies(unittest.TestCase):
+    def test_plan_reply_names_the_plan_and_waits_for_start(self):
+        text = arm_control.spoken_plan(arm_control.detect_plan("start the full sequence"))
+        self.assertIn("Full sequence", text)
+        self.assertIn("press Start", text)
+
+    def test_result_reports_only_what_the_log_shows(self):
+        last = {"dry": False, "grasp": True, "missed": 0, "ended": "at rest", "movement": [
+            {"label": "Right slide", "moved": True}, {"label": "Lift", "moved": False},
+            {"label": "Left slide", "moved": True}]}
+        text = arm_control.spoken_result(last)
+        self.assertIn("first try", text)
+        self.assertIn("right slide and left slide went through", text)
+        self.assertIn("lift barely moved", text)
+        self.assertTrue(text.endswith("The arm is back at rest."))
+
+    def test_result_without_a_grasp(self):
+        text = arm_control.spoken_result({"dry": False, "grasp": False, "missed": 2, "movement": []})
+        self.assertIn("skipped the exercises", text)
+        self.assertNotIn("went through", text)
+
+    def test_result_for_a_practice_run_says_nothing_moved(self):
+        text = arm_control.spoken_result({"dry": True, "grasp": False, "missed": 0, "movement": []})
+        self.assertIn("the arm did not move", text)
+
+    def test_later_attempt_and_stop(self):
+        text = arm_control.spoken_result({"dry": False, "grasp": True, "missed": 3,
+                                          "ended": "stopped", "movement": []})
+        self.assertIn("attempt 4", text)
+        self.assertTrue(text.endswith("holding still."))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,6 +40,7 @@ import recommend
 import stt
 import suggest
 import summary
+import tts
 
 # Make the ElevenLabs key available to stt.py (which reads it from the
 # environment) without hardcoding it in source. The value lives in
@@ -1245,6 +1246,15 @@ with tab_guided:
              "Local runs on this machine and the audio never leaves it.",
     )
     g_backend = "elevenlabs" if g_choice.startswith("ElevenLabs") else "local"
+    g_speak = st.toggle(
+        "Speak replies aloud (ElevenLabs voice)", value=tts.available(), key="g_speak",
+        disabled=not tts.available(),
+        help="The assistant answers your request and reports what the arm did. The words come "
+             "from the detected plan and the arm's own logs; ElevenLabs turns them into speech, "
+             "so the reply text is sent to the cloud. Off: replies are shown as text only.",
+    )
+    reply_box = st.container()      # the assistant's reply is filled in at the end of this tab
+    g_reply = None                  # set below when this run has something new to say
 
     g_audio = st.audio_input("Say your request", key="g_audio")
     g_spoken = ""
@@ -1280,6 +1290,10 @@ with tab_guided:
 
     # --- deterministic plan from keywords ----------------------------------
     plan = arm_control.detect_plan(g_request)
+    if g_request != st.session_state.get("_g_answered"):      # answer each new request once
+        st.session_state["_g_answered"] = g_request
+        if g_request:
+            g_reply = arm_control.spoken_plan(plan) if plan else arm_control.spoken_no_plan()
     if g_request and plan is None:
         st.caption(
             "No arm exercise matched that request. Mention a region the arm is "
@@ -1306,9 +1320,8 @@ with tab_guided:
                      key="g_start", use_container_width=True):
             ok, info = arm_control.start(plan["exercises"], dry=dry)
             if ok:
-                st.success(f"Started {plan['label']}"
-                           + (" (dry run)" if dry else "") + f". The arm will grasp "
-                           "the wrist first, then run the exercise, then return to rest.")
+                st.session_state["_g_say"] = arm_control.spoken_start(plan, dry)
+                st.session_state["_g_watch"] = True      # report the result when it finishes
                 st.rerun()
             else:
                 st.error(str(info))
@@ -1319,6 +1332,8 @@ with tab_guided:
                 st.session_state["_g_notice"] = (
                     "Stopped. The arm is holding where it is with the motors on and the grip "
                     "closed. Press Return to rest to let go and bring it home.")
+                st.session_state["_g_say"] = arm_control.spoken_stop()
+                st.session_state["_g_watch"] = False
             st.rerun()
 
     notice = st.session_state.pop("_g_notice", None)
@@ -1330,10 +1345,14 @@ with tab_guided:
         ok, info = arm_control.rest()
         st.session_state["_g_notice"] = ("Returning to rest: the gripper opens, then the arm goes home."
                                          if ok else str(info))
+        if ok:
+            st.session_state["_g_say"] = arm_control.spoken_rest()
         st.rerun()
 
     # --- what the last run did ------------------------------------------------
     last = None if running else arm_control.last_run()
+    if not running and st.session_state.pop("_g_watch", False):   # the run we started has finished
+        g_reply = arm_control.spoken_result(last)
     if last and (last["grasp"] is not None):
         st.markdown("**Last run**" + (" (dry run, simulated arm)" if last["dry"] else ""))
         if last["grasp"]:
@@ -1359,5 +1378,35 @@ with tab_guided:
     if log_text:
         with st.expander("Arm run log", expanded=running):
             st.code(log_text, language="text")
-    if running and st.button("Refresh status", key="g_refresh"):
-        st.rerun()
+    if running:
+        @st.fragment(run_every="2s")
+        def _watch_run():
+            """Show the current step, and refresh the whole page once the run ends."""
+            if not arm_control.is_running():
+                st.rerun()
+            st.caption(arm_control.current_step())
+        _watch_run()
+
+    # --- the assistant's reply: text always, voice if switched on -------------
+    g_reply = st.session_state.pop("_g_say", None) or g_reply
+    if g_reply:
+        st.session_state["_g_reply"] = g_reply
+    if st.session_state.get("_g_reply"):
+        with reply_box:
+            with st.chat_message("assistant"):
+                st.write(st.session_state["_g_reply"])
+                if g_reply and g_speak:              # speak each new reply once
+                    why = st.session_state.get("_g_tts_down")
+                    if not why:
+                        try:
+                            st.audio(tts.speak(g_reply), format="audio/mpeg", autoplay=True)
+                        except Exception as exc:
+                            why = tts.explain(exc)
+                            st.session_state["_g_tts_down"] = why      # don't retry every reply
+                    if why:
+                        # Fall back to the browser's own voice, so the assistant still talks.
+                        components.html(
+                            "<script>try{const s=(window.parent||window).speechSynthesis;"
+                            f"const u=new SpeechSynthesisUtterance({json.dumps(g_reply)});"
+                            "s.cancel();s.speak(u);}catch(e){}</script>", height=0)
+                        st.caption(f"Spoken with this browser's built-in voice. {why}")

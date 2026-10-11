@@ -347,3 +347,78 @@ def last_run():
         except Exception:
             pass
     return summary
+
+
+# --------------------------------------------------------------------------
+# What the assistant says back. Plain functions of the plan and the logs, so the
+# spoken reply can never claim something the arm did not do.
+# --------------------------------------------------------------------------
+def _join(items):
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def spoken_plan(plan):
+    """Reply to a request that matched a plan (before anything moves)."""
+    return (f"Okay. {plan['label']}. I will {plan['describe']}. "
+            "Rest your forearm on the table with your wrist over the marker, then press Start.")
+
+
+def spoken_no_plan():
+    return ("I didn't catch an exercise in that. You can ask for the shoulder, the forearm, "
+            "side to side, or the full sequence.")
+
+
+def spoken_start(plan, dry=False):
+    if dry:
+        return f"Starting a practice run of the {plan['label'].lower()}. The arm will not move."
+    return (f"Starting the {plan['label'].lower()}. I'm reaching for your wrist now. "
+            "Keep your arm relaxed, and say stop or press Stop at any time.")
+
+
+def spoken_stop():
+    return ("Stopped. I'm holding still with the grip closed. "
+            "Press Return to rest when you're ready for me to let go.")
+
+
+def spoken_rest():
+    return "Letting go and returning to rest. Take your hand out as the gripper opens."
+
+
+def spoken_result(last):
+    """Reply after a run, from last_run(). Says only what the logs show."""
+    if not last or last.get("grasp") is None:
+        return "The run ended before I reached for your wrist."
+    practice = "That was a practice run, so the arm did not move. " if last.get("dry") else ""
+    if not last["grasp"]:
+        return (practice + "I couldn't get hold of your wrist, so I skipped the exercises. "
+                "Check that your wrist is over the marker and we can try again.")
+    tries = last.get("missed", 0) + 1
+    text = practice + ("I held your wrist on the first try. " if tries == 1
+                       else f"I held your wrist on attempt {tries}. ")
+    moved = [m["label"].lower() for m in last.get("movement", []) if m["moved"]]
+    stalled = [m["label"].lower() for m in last.get("movement", []) if not m["moved"]]
+    if moved:
+        text += f"The {_join(moved)} went through. "
+    if stalled:
+        text += f"The {_join(stalled)} barely moved, so we may want to repeat {'it' if len(stalled) == 1 else 'them'}. "
+    if last.get("ended") == "grip lost":
+        text += "I lost my grip part-way, so I stopped early. "
+    elif last.get("ended") == "stopped":
+        return text + "You stopped the run, and I'm holding still."
+    return text + "The arm is back at rest."
+
+
+def current_step():
+    """The step a running sequence is on, in the operator's words, from its log."""
+    try:
+        lines = LOG.read_text(errors="replace").splitlines()
+    except Exception:
+        return ""
+    for line in reversed(lines):
+        m = re.search(r" (\d+)/(\d+) (grasp|slide_left|slide_right|lift|rest)", line)
+        if m:
+            name = {"grasp": "Reaching for the wrist", "rest": "Returning to rest"}.get(
+                m.group(3), EXERCISE_LABELS.get(m.group(3), m.group(3)))
+            return f"Step {m.group(1)} of {m.group(2)}: {name}"
+    return "Loading the models"
