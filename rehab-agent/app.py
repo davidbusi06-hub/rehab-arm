@@ -18,21 +18,277 @@ Division of labour (see README):
 Run with:  streamlit run app.py
 """
 
-import json
 from datetime import date
+
+import json
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import analysis
 import feedback
 import llm
 import patient_profile
 import qa
+import recommend
+import stt
 import suggest
 import summary
 
-st.set_page_config(page_title="Rehab Robot Dashboard", page_icon="🦾", layout="wide")
+# Self-contained SO-101 arm animation embedded on the Home tab (its own iframe,
+# so it carries its own styles/script and blends with the light pastel theme).
+ARM_ANIM = r'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+  :root{
+    --panel:#FFFFFF; --ink:#413F4A; --muted:#857F90; --line:#E8E2EF;
+    --blue:#8FB8DE; --mint:#B8E0D2; --arc:#CDB4DB;
+    --link:#F7F4FB; --link-hi:#FFFFFF; --servo:#3C3B46; --servo-edge:#555463;
+    --desk:#ECE5F1; --desk-edge:#E0D8E9; --skin:#F0C7AE; --skin-edge:#DCAB90;
+    --sky-0:#EAF2FB; --sky-1:#F3ECFA; --shadow:rgba(68,63,74,.12);
+  }
+  body.dark{
+    --panel:#20212A; --ink:#ECEAF2; --muted:#9A9CAB; --line:#30313B;
+    --blue:#8FB8DE; --mint:#A9D8C7; --arc:#9E87B1;
+    --link:#ECE9F3; --link-hi:#FFFFFF; --servo:#121318; --servo-edge:#33343F;
+    --desk:#2A2B35; --desk-edge:#363745; --skin:#E7BEA4; --skin-edge:#C89A80;
+    --sky-0:#21232E; --sky-1:#2A2536; --shadow:rgba(0,0,0,.42);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:transparent;font-family:"Hanken Grotesk",system-ui,sans-serif;}
+  .card{max-width:720px;margin:0 auto;background:var(--panel);border:1px solid var(--line);
+    border-radius:18px;box-shadow:0 6px 22px var(--shadow);overflow:hidden;}
+  .scene{display:block;width:100%;height:auto;}
+  .bar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 18px;border-top:1px solid var(--line);}
+  .readout{display:flex;align-items:baseline;gap:9px;}
+  .readout .label{font-size:.70rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);}
+  .readout .val{font-family:"DM Mono",monospace;font-size:1.35rem;color:var(--ink);font-variant-numeric:tabular-nums;}
+  .track{flex:1 1 140px;height:8px;min-width:110px;background:var(--line);border-radius:99px;overflow:hidden;}
+  .fill{height:100%;width:40%;background:linear-gradient(90deg,var(--mint),var(--blue));border-radius:99px;}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;
+    font-weight:600;font-size:.86rem;padding:8px 16px;border-radius:10px;cursor:pointer;}
+  .btn:hover{border-color:var(--blue);}
+  .btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  .sky0{stop-color:var(--sky-0);} .sky1{stop-color:var(--sky-1);}
+</style></head><body>
+<div class="card">
+  <svg class="scene" viewBox="0 0 860 500" role="img"
+       aria-label="A desktop SO-101 robot arm guiding a seated patient's wrist through an upward arc.">
+    <defs>
+      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" class="sky0"/><stop offset="1" class="sky1"/>
+      </linearGradient>
+    </defs>
+    <rect x="0" y="0" width="860" height="500" fill="url(#sky)"/>
+    <rect x="560" y="40" width="250" height="210" rx="14" fill="#ffffff" opacity="0.28"/>
+    <rect x="0" y="432" width="860" height="68" fill="var(--desk)"/>
+    <rect x="0" y="432" width="860" height="4" fill="var(--desk-edge)"/>
+    <path id="guide" fill="none" stroke="var(--arc)" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round" opacity="0.65"/>
+    <line id="upperarm" stroke="var(--skin)" stroke-width="34" stroke-linecap="round"/>
+    <line id="forearm" stroke="var(--skin)" stroke-width="30" stroke-linecap="round"/>
+    <ellipse id="hand" rx="26" ry="18" fill="var(--skin)" stroke="var(--skin-edge)" stroke-width="2"/>
+    <circle id="elbowJ" r="15" fill="var(--skin)" stroke="var(--skin-edge)" stroke-width="2"/>
+    <path id="baseMount" fill="var(--servo)" stroke="var(--servo-edge)" stroke-width="2"
+          d="M150 432 L150 404 Q150 396 158 396 L222 396 Q230 396 230 404 L230 432 Z"/>
+    <rect x="138" y="428" width="104" height="10" rx="4" fill="var(--servo)"/>
+    <line id="link1" stroke="var(--link)" stroke-width="26" stroke-linecap="round"/>
+    <line id="link1hi" stroke="var(--link-hi)" stroke-width="7" stroke-linecap="round" opacity="0.7"/>
+    <line id="link2" stroke="var(--link)" stroke-width="22" stroke-linecap="round"/>
+    <line id="link2hi" stroke="var(--link-hi)" stroke-width="6" stroke-linecap="round" opacity="0.7"/>
+    <rect id="servoBase" width="50" height="38" rx="7" fill="var(--servo)" stroke="var(--servo-edge)" stroke-width="2"/>
+    <rect id="servoElbow" width="46" height="34" rx="7" fill="var(--servo)" stroke="var(--servo-edge)" stroke-width="2"/>
+    <path id="cradle" fill="none" stroke="var(--mint)" stroke-width="10" stroke-linecap="round"/>
+    <rect id="servoWrist" width="40" height="30" rx="6" fill="var(--servo)" stroke="var(--servo-edge)" stroke-width="2"/>
+    <circle id="tip" r="6" fill="var(--blue)"/>
+  </svg>
+  <div class="bar">
+    <div class="readout"><span class="label">Range of motion</span><span class="val"><span id="romVal">42</span>&deg;</span></div>
+    <div class="track"><div class="fill" id="barFill"></div></div>
+    <button class="btn" id="toggle" aria-pressed="false"><span id="toggleLabel">Pause</span></button>
+  </div>
+</div>
+<script>
+(function(){"use strict";
+  var $=function(id){return document.getElementById(id);};
+  var B={x:190,y:418},HE={x:662,y:398},BODY={x:742,y:486},R=212,L1=214,L2=182;
+  var A_MIN=6*Math.PI/180,A_MAX=46*Math.PI/180,HAND_LEN=40,ROM_LO=42,ROM_HI=71;
+  function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v;} function deg(r){return r*180/Math.PI;}
+  function wristAt(a){return {x:HE.x-R*Math.cos(a),y:HE.y-R*Math.sin(a)};}
+  function solve(a){var W=wristAt(a);var dx=W.x-B.x,dyUp=B.y-W.y;
+    var d=Math.min(Math.hypot(dx,dyUp),L1+L2-0.5);var base=Math.atan2(dyUp,dx);
+    var cosq=(d*d+L1*L1-L2*L2)/(2*L1*d);var q=Math.acos(clamp(cosq,-1,1));var t1=base+q;
+    return {W:W,J2:{x:B.x+L1*Math.cos(t1),y:B.y-L1*Math.sin(t1)}};}
+  function segAngleDeg(p1,p2){return deg(Math.atan2(p2.y-p1.y,p2.x-p1.x));}
+  function placeServo(el,j,p1,p2){var w=+el.getAttribute("width"),h=+el.getAttribute("height");
+    el.setAttribute("x",j.x-w/2);el.setAttribute("y",j.y-h/2);
+    el.setAttribute("transform","rotate("+segAngleDeg(p1,p2)+" "+j.x+" "+j.y+")");}
+  function setLine(el,p1,p2){el.setAttribute("x1",p1.x);el.setAttribute("y1",p1.y);el.setAttribute("x2",p2.x);el.setAttribute("y2",p2.y);}
+  var link1=$("link1"),link1hi=$("link1hi"),link2=$("link2"),link2hi=$("link2hi");
+  var servoBase=$("servoBase"),servoElbow=$("servoElbow"),servoWrist=$("servoWrist");
+  var cradle=$("cradle"),tip=$("tip"),forearm=$("forearm"),upperarm=$("upperarm"),hand=$("hand"),elbowJ=$("elbowJ");
+  var romVal=$("romVal"),barFill=$("barFill");
+  function render(a){var s=solve(a),W=s.W,J2=s.J2;
+    setLine(link1,B,J2);setLine(link1hi,B,J2);setLine(link2,J2,W);setLine(link2hi,J2,W);
+    placeServo(servoBase,B,B,J2);placeServo(servoElbow,J2,J2,W);placeServo(servoWrist,W,J2,W);
+    var wa=segAngleDeg(J2,W);
+    cradle.setAttribute("d","M"+(W.x-16)+" "+W.y+" A 18 18 0 1 1 "+(W.x+16)+" "+W.y);
+    cradle.setAttribute("transform","rotate("+(wa-90)+" "+W.x+" "+W.y+")");
+    tip.setAttribute("cx",W.x);tip.setAttribute("cy",W.y);
+    setLine(forearm,HE,W);setLine(upperarm,HE,BODY);
+    elbowJ.setAttribute("cx",HE.x);elbowJ.setAttribute("cy",HE.y);
+    var ux=W.x-HE.x,uy=W.y-HE.y,ul=Math.hypot(ux,uy)||1;
+    var hc={x:W.x+HAND_LEN*ux/ul,y:W.y+HAND_LEN*uy/ul};
+    hand.setAttribute("cx",hc.x);hand.setAttribute("cy",hc.y);
+    hand.setAttribute("transform","rotate("+deg(Math.atan2(uy,ux))+" "+hc.x+" "+hc.y+")");
+    var p=(a-A_MIN)/(A_MAX-A_MIN);
+    romVal.textContent=Math.round(ROM_LO+(ROM_HI-ROM_LO)*p);
+    barFill.style.width=(10+90*p).toFixed(1)+"%";}
+  (function(){var d="",n=40;for(var i=0;i<=n;i++){var W=wristAt(A_MIN+(A_MAX-A_MIN)*i/n);
+    d+=(i?" L":"M")+W.x.toFixed(1)+" "+W.y.toFixed(1);}$("guide").setAttribute("d",d);})();
+  var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var UP=2000,HOLD=450,DOWN=2000,CYCLE=UP+HOLD+DOWN+HOLD;
+  function easeInOut(x){return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;}
+  function phase(t){var m=t%CYCLE;if(m<UP)return easeInOut(m/UP);m-=UP;if(m<HOLD)return 1;
+    m-=HOLD;if(m<DOWN)return 1-easeInOut(m/DOWN);return 0;}
+  var playing=!reduce,start=null,raf=null;
+  function frame(ts){if(start===null)start=ts;var p=phase(ts-start);
+    render(A_MIN+(A_MAX-A_MIN)*p);if(playing)raf=requestAnimationFrame(frame);}
+  if(reduce){render(A_MIN+(A_MAX-A_MIN)*0.6);}else{raf=requestAnimationFrame(frame);}
+  var toggle=$("toggle"),toggleLabel=$("toggleLabel");
+  toggle.addEventListener("click",function(){playing=!playing;
+    toggle.setAttribute("aria-pressed",String(!playing));
+    toggleLabel.textContent=playing?"Pause":"Play";
+    if(playing){start=null;raf=requestAnimationFrame(frame);}else if(raf){cancelAnimationFrame(raf);}});
+  if(reduce){toggleLabel.textContent="Play";}
+})();
+</script></body></html>'''
+
+# Night-mode override: applied on top of the light theme when the toggle is on.
+DARK_CSS = """
+<style>
+  :root, [data-testid="stApp"] { color-scheme: dark; }
+  html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"],
+  .main, .block-container { background-color: #17181E !important; color: #ECEAF2 !important; }
+  [data-testid="stHeader"] { background: transparent !important; }
+  h1, h2, h3, h4, p, li, label, .stMarkdown span { color: #ECEAF2 !important; }
+  .app-header {
+    background: linear-gradient(120deg, #23202e 0%, #201b2b 55%, #1b2430 100%) !important;
+    border-color: #30313B !important;
+  }
+  .app-header-title { color: #ECEAF2 !important; }
+  .app-header-sub { color: #9A9CAB !important; }
+  [data-testid="stMetric"] { background: #20212A !important; border-color: #30313B !important; }
+  [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * { color: #9A9CAB !important; }
+  [data-testid="stMetricValue"] { color: #ECEAF2 !important; }
+  .stTabs [data-baseweb="tab-list"] { background: #17181E !important; }
+  .stTabs [data-baseweb="tab"] { color: #B9B6C4 !important; }
+  section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #221b2e 0%, #1a1f2b 100%) !important;
+  }
+  section[data-testid="stSidebar"] * { color: #ECEAF2 !important; }
+  [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: #9A9CAB !important; }
+  .stButton > button { background: #20212A !important; color: #ECEAF2 !important; border-color: #30313B !important; }
+  .stButton > button[kind="primary"] { background: #8FB8DE !important; color: #16202a !important; }
+  input, textarea, [data-baseweb="select"] > div, [data-baseweb="input"] > div {
+    background: #20212A !important; color: #ECEAF2 !important;
+  }
+  [data-testid="stDataFrame"] { background: #20212A !important; }
+</style>
+"""
+
+st.set_page_config(
+    page_title="Rehab Robot Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded",  # foldable: use the « control to collapse
+)
+
+# --------------------------------------------------------------------------
+# Light pastel theme polish (CSS on top of .streamlit/config.toml)
+# --------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+      :root {
+        --ink:        #44464F;
+        --muted:      #7A7D88;
+        --card:       #FFFFFF;
+        --border:     #ECE7F2;
+        --blue:       #8FB8DE;
+        --lavender:   #CDB4DB;
+        --mint:       #B8E0D2;
+        --peach:      #F7CBB6;
+      }
+      .block-container { padding-top: 2.2rem; max-width: 1180px; }
+      h1, h2, h3 { color: var(--ink); font-weight: 650; letter-spacing: -0.01em; }
+
+      /* Header banner */
+      .app-header {
+        background: linear-gradient(120deg, #EAF2FB 0%, #F3ECFA 55%, #EAF7F1 100%);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 22px 26px;
+        margin-bottom: 18px;
+      }
+      .app-header-title { font-size: 1.55rem; font-weight: 680; color: var(--ink); }
+      .app-header-sub   { font-size: 0.95rem; color: var(--muted); margin-top: 4px; }
+
+      /* Metric tiles as soft pastel cards */
+      [data-testid="stMetric"] {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px 18px;
+        box-shadow: 0 1px 3px rgba(68, 70, 79, 0.05);
+      }
+      [data-testid="stMetricLabel"] { color: var(--muted); font-weight: 500; }
+
+      /* Buttons */
+      .stButton > button { border-radius: 10px; border: 1px solid var(--border); }
+      .stButton > button[kind="primary"] {
+        background: var(--blue); color: #1f3240; border: none;
+      }
+
+      /* Tabs: pinned to the top and horizontally scrollable */
+      .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: #FCFBF9;
+        overflow-x: auto;
+        overflow-y: hidden;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        scrollbar-width: thin;
+        padding: 4px 0 2px;
+      }
+      .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { height: 6px; }
+      .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+        background: #D8D2E2; border-radius: 3px;
+      }
+      .stTabs [data-baseweb="tab"] {
+        border-radius: 10px 10px 0 0;
+        padding: 6px 14px;
+        flex: 0 0 auto;          /* don't shrink; let the bar scroll instead */
+      }
+
+      /* Sidebar wash + keep the collapse («) control visible */
+      section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #F3ECFA 0%, #EAF2FB 100%);
+      }
+      [data-testid="stSidebarCollapseButton"],
+      [data-testid="collapsedControl"] { display: block !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Pastel chart palette (used by the trend charts below).
+C_BLUE, C_LAVENDER, C_MINT, C_PEACH, C_ROSE = (
+    "#8FB8DE", "#CDB4DB", "#B8E0D2", "#F7CBB6", "#F4A6A6",
+)
 
 
 # --------------------------------------------------------------------------
@@ -63,7 +319,7 @@ def list_patients():
 
 patients = list_patients()
 
-st.sidebar.title("🦾 Rehab Robot")
+st.sidebar.title("Rehab Robot")
 if not patients:
     st.sidebar.error("No patients found in data/sessions/.")
     st.title("Rehab Robot Dashboard")
@@ -72,8 +328,24 @@ if not patients:
 
 patient_id = st.sidebar.selectbox("Patient", patients)
 if not hasattr(analysis, "list_patients"):
-    st.sidebar.caption("⚠️ Using local patient-list stand-in "
+    st.sidebar.caption("Using local patient-list stand-in "
                        "(awaiting analysis.list_patients).")
+
+# Night-mode toggle: sun/moon icon button, top-right of the main area.
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+_nm_spacer, _nm_btn = st.columns([9, 1])
+with _nm_btn:
+    _icon = ":material/light_mode:" if st.session_state.dark_mode else ":material/dark_mode:"
+    if st.button(
+        "", icon=_icon, key="dm_btn",
+        help="Switch to day mode" if st.session_state.dark_mode else "Switch to night mode",
+    ):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+dark = st.session_state.dark_mode
+if dark:
+    st.markdown(DARK_CSS, unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------
@@ -81,9 +353,6 @@ if not hasattr(analysis, "list_patients"):
 # --------------------------------------------------------------------------
 sessions = analysis.load_sessions(patient_id)
 trend = analysis.patient_trend(patient_id)  # one stats dict per session
-
-st.title(f"Rehab Robot Dashboard — {patient_id}")
-st.caption(f"{len(sessions)} session(s) on record")
 
 # Personalization inputs: the therapist-set profile, and this patient measured
 # against their own baseline, best and goals (numbers from analysis.py).
@@ -94,10 +363,94 @@ earned = analysis.milestones(patient_id, profile["target_rom_deg"])
 focus = analysis.focus_areas(
     patient_id, profile["target_rom_deg"], profile["sessions_per_week_goal"])
 
-tab_sessions, tab_suggest, tab_trends, tab_personal, tab_daily, tab_insight = st.tabs(
-    ["Sessions", "Next-session suggestion", "Trends", "Personal plan", "Daily feedback",
-     "Summary & Q&A"]
+st.markdown(
+    f"""
+    <div class="app-header">
+      <div class="app-header-title">Rehab Robot Dashboard</div>
+      <div class="app-header-sub">Patient {patient_id} &middot; {len(sessions)} session(s) on record</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
+
+(tab_home, tab_sessions, tab_suggest, tab_trends, tab_personal, tab_daily, tab_insight,
+ tab_train) = st.tabs(
+    ["Home", "Sessions", "Next-session suggestion", "Trends", "Personal plan", "Daily feedback",
+     "Summary & Q&A", "Training plan"]
+)
+
+
+# --------------------------------------------------------------------------
+# (0) Home: what this project is for
+# --------------------------------------------------------------------------
+with tab_home:
+    st.markdown(
+        """
+        <div class="app-header">
+          <div class="app-header-title">Rehab progress, in plain language</div>
+          <div class="app-header-sub">A robot-assisted upper-limb rehabilitation
+          system with an AI insight layer that runs entirely on-device.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _anim = ARM_ANIM.replace("<body>", '<body class="dark">') if dark else ARM_ANIM
+    components.html(_anim, height=505, scrolling=False)
+    st.caption(
+        "The SO-101 cradles the wrist and guides it through one range-of-motion "
+        "arc — illustrative motion on a light, supported limb."
+    )
+
+    st.markdown(
+        "This dashboard helps a therapist understand a patient's recovery without "
+        "reading raw robot logs. After each session the rehab robot records what "
+        "happened — range of motion, how much the robot had to assist, peak "
+        "resistance, reps completed versus target, and any safety stops. The system "
+        "turns those numbers into clear summaries, answers questions about the "
+        "patient, and proposes settings for the next session for the therapist to "
+        "approve."
+    )
+
+    st.subheader("How it works")
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(
+        "**1 — The robot runs a session**\n\nThe arm guides the patient through the "
+        "exercise and logs every rep: range of motion, assist, resistance, and "
+        "safety stops."
+    )
+    c2.markdown(
+        "**2 — The numbers are analysed**\n\nA single analysis layer computes every "
+        "figure, per session and across the whole history. It is the one source of "
+        "truth for all numbers shown here."
+    )
+    c3.markdown(
+        "**3 — Insight for the therapist**\n\nA local language model turns those "
+        "numbers into plain-language summaries and answers. Suggestions stay "
+        "advisory until the therapist approves them."
+    )
+
+    st.subheader("Why it matters")
+    st.markdown(
+        "- **Grounded, not guessed** — the language model only phrases numbers the "
+        "analysis layer produced; it never invents figures.\n"
+        "- **Private by design** — the model runs locally on AMD hardware, so patient "
+        "data never leaves the device.\n"
+        "- **Therapist in control** — the robot suggests; the therapist decides. "
+        "Nothing changes the plan without approval."
+    )
+
+    st.subheader("What you can do here")
+    st.markdown(
+        "- **Sessions** — review any single session's metrics and safety stops.\n"
+        "- **Next-session suggestion** — see and approve the recommended assist "
+        "level and rep target.\n"
+        "- **Trends** — track range of motion, assist, reps, and safety stops across "
+        "sessions.\n"
+        "- **Summary & Q&A** — get a plain-language progress summary, or ask a "
+        "question about the patient."
+    )
+    st.caption("Select a patient in the sidebar to begin.")
 
 
 # --------------------------------------------------------------------------
@@ -127,7 +480,7 @@ with tab_sessions:
     )
 
     if stats["safety_stops"]:
-        st.warning(f"⚠️ {stats['safety_stops']} safety stop(s) in this session.")
+        st.warning(f"{stats['safety_stops']} safety stop(s) in this session.")
     else:
         st.success("No safety stops in this session.")
 
@@ -147,27 +500,33 @@ with tab_suggest:
 
     existing = suggest.load_suggestion(patient_id)
     if existing and existing.get("approved"):
+        approved_range = existing["suggested"].get("target_rom_deg")
         st.success(
-            f"✅ Approved on {existing.get('approved_at', 'unknown')} — "
-            f"assist {existing['suggested']['assist_level']}%, "
-            f"target {existing['suggested']['target_reps']} reps."
+            f"Approved on {existing.get('approved_at', 'unknown')} - "
+            f"assist cap {existing['suggested']['assist_level']}%, "
+            f"target {existing['suggested']['target_reps']} reps"
+            + (f", range {approved_range:g}°." if approved_range is not None else ".")
         )
 
-    s = suggest.make_suggestion(patient_id)
+    # The therapist's range goal comes from the patient's profile (Personal plan tab).
+    s = suggest.make_suggestion(patient_id, profile["target_rom_deg"])
 
     if s["suggested"] is None:
         st.info(s["rationale"])
     else:
         st.info(s["rationale"])
         cur, sug = s["current"], s["suggested"]
+        has_range = "target_rom_deg" in sug
 
         col_now, col_next = st.columns(2)
         with col_now:
             st.markdown("**Current (latest session)**")
             st.metric("Assist cap (torque)", f"{cur['assist_level']}%")
             st.metric("Target reps", cur["target_reps"])
+            if has_range:
+                st.metric("Target range of motion", f"{cur['target_rom_deg']:g}°")
         with col_next:
-            st.markdown("**Suggested — edit before approving**")
+            st.markdown("**Suggested - edit before approving**")
             new_assist = st.number_input(
                 "Assist cap (% torque)",
                 min_value=0.0, max_value=100.0,
@@ -175,21 +534,47 @@ with tab_suggest:
             )
             new_reps = st.number_input(
                 "Target reps",
-                min_value=0, max_value=200,
+                min_value=1, max_value=200,
                 value=int(sug["target_reps"]), step=1,
             )
+            new_range = st.number_input(
+                "Target range of motion (degrees)",
+                min_value=suggest.RANGE_MIN, max_value=suggest.RANGE_MAX,
+                value=float(sug["target_rom_deg"]), step=1.0,
+            ) if has_range else None
 
-        delta_assist = round(new_assist - cur["assist_level"], 1)
-        delta_reps = new_reps - cur["target_reps"]
+        change = (f"Change vs current: assist cap {round(new_assist - cur['assist_level'], 1):+}%, "
+                  f"reps {new_reps - cur['target_reps']:+}")
+        if has_range:
+            change += f", range {round(new_range - cur['target_rom_deg'], 1):+}°"
+        st.caption(change)
         st.caption(
-            f"Change vs current: assist {delta_assist:+}%, reps {delta_reps:+}"
+            f"The arm applies an assist cap between {suggest.ASSIST_CAP_MIN:g}% and "
+            f"{suggest.ASSIST_CAP_MAX:g}% unless its operator raises the ceiling, and refuses a "
+            "range past the joint's end stop."
         )
+        if not has_range:
+            st.caption("The latest session did not record its target range, so no range is suggested.")
+        elif profile["target_rom_deg"] is None:
+            st.caption("Set a range-of-motion target in the Personal plan tab to let the range "
+                       "progress towards it.")
 
-        if st.button("✅ Approve next-session settings", type="primary"):
-            approved = suggest.approve(
-                patient_id,
-                {"assist_level": new_assist, "target_reps": new_reps},
-            )
+        with st.expander("How this suggestion was decided"):
+            st.caption("Rules are checked in this order; the first that applies decides.")
+            for item in s["considered"]:
+                mark = "decided" if item["decided"] else ("applies, but an earlier rule decided"
+                                                          if item["applies"] else "does not apply")
+                st.markdown(f"- **{item['rule'].replace('_', ' ')}** ({mark}): {item['why']}")
+
+        if st.button("Approve next-session settings", type="primary"):
+            settings = {"assist_level": new_assist, "target_reps": new_reps}
+            if has_range:
+                settings["target_rom_deg"] = new_range
+            # Save what is on screen first, so the approved file carries this suggestion's
+            # rule, rationale and session number, not those of an older saved one (the arm
+            # ignores an approval based on a session that is no longer the latest).
+            suggest.save_suggestion(s)
+            approved = suggest.approve(patient_id, settings)
             st.success(
                 f"Approved and saved to data/suggestions/{patient_id}_next.json "
                 f"at {approved['approved_at']}."
@@ -208,21 +593,21 @@ with tab_trends:
         df = pd.DataFrame(trend).set_index("session_id")
 
         st.markdown("**Range of motion (degrees)**")
-        st.line_chart(df[["avg_rom_deg"]])
+        st.line_chart(df[["avg_rom_deg"]], color=C_BLUE)
 
         st.markdown("**Robot assist (%)** — lower is more independent")
-        st.line_chart(df[["avg_assist_pct"]])
+        st.line_chart(df[["avg_assist_pct"]], color=C_LAVENDER)
 
         st.markdown("**Reps: completed vs target**")
-        st.line_chart(df[["completed_reps", "target_reps"]])
+        st.line_chart(df[["completed_reps", "target_reps"]], color=[C_MINT, C_PEACH])
 
         st.markdown("**Safety stops per session**")
-        st.bar_chart(df[["safety_stops"]])
+        st.bar_chart(df[["safety_stops"]], color=C_ROSE)
 
 
 # --------------------------------------------------------------------------
-# (4) Personal plan: profile, progress against the patient's own baseline,
-#     milestones and what to discuss first
+# Personal plan: profile, progress against the patient's own baseline,
+# milestones and what to discuss first
 # --------------------------------------------------------------------------
 with tab_personal:
     name = profile["preferred_name"] or patient_id
@@ -327,10 +712,10 @@ with tab_personal:
 
 
 # --------------------------------------------------------------------------
-# (5) Daily feedback and Summary & Q&A (LLM-backed; degrade gracefully if offline)
+# Daily feedback and Summary & Q&A (LLM-backed; degrade gracefully if offline)
 # --------------------------------------------------------------------------
 _OFFLINE = (
-    "🔌 Insight engine offline — the local model could not be reached. "
+    "Insight engine offline — the local model could not be reached. "
     "Numbers and charts are unaffected; prose will return once the model "
     "is back."
 )
@@ -405,3 +790,87 @@ with tab_insight:
             except RuntimeError as exc:
                 st.warning(_OFFLINE)
                 st.caption(str(exc))
+
+
+# --------------------------------------------------------------------------
+# (5) Training plan: recommend exercises from an uploaded doctor report
+# --------------------------------------------------------------------------
+with tab_train:
+    st.subheader("Exercise recommendation from a doctor report")
+    st.caption(
+        "Upload or paste a doctor report. Exercises are selected from a public "
+        "library by the local model, grounded in that library (never invented)."
+    )
+    st.warning(
+        "Not medical advice. A clinician must review and approve any plan before "
+        "a patient begins. Stop any exercise that causes pain."
+    )
+
+    # Voice input. Local keeps audio on this device; ElevenLabs is more
+    # accurate but sends the audio to the cloud (needs ELEVENLABS_API_KEY).
+    _stt_choice = st.radio(
+        "Transcription",
+        ["Local (private)", "ElevenLabs (cloud)"],
+        horizontal=True, index=0,
+        help="Local runs on this machine and the audio never leaves it. "
+             "ElevenLabs is more accurate but uploads the audio to the cloud "
+             "and needs ELEVENLABS_API_KEY.",
+    )
+    _backend = "elevenlabs" if _stt_choice.startswith("ElevenLabs") else "local"
+
+    audio = st.audio_input("Describe your issue out loud (optional)")
+    spoken = ""
+    if audio is not None:
+        audio_bytes = audio.getvalue()
+        _key = (_backend, hash(audio_bytes))
+        if st.session_state.get("_stt_key") != _key:
+            label = "Uploading to ElevenLabs…" if _backend == "elevenlabs" else "Transcribing on your device…"
+            with st.spinner(label):
+                try:
+                    st.session_state["_stt_text"] = stt.transcribe(audio_bytes, backend=_backend)
+                except Exception as exc:
+                    st.session_state["_stt_text"] = ""
+                    st.warning("Could not transcribe the audio.")
+                    st.caption(str(exc))
+            st.session_state["_stt_key"] = _key
+        spoken = st.session_state.get("_stt_text", "")
+        if spoken:
+            st.caption(f"Heard: “{spoken}”")
+
+    uploaded = st.file_uploader("…or upload a doctor report (.txt or .md)", type=["txt", "md"])
+    file_text = ""
+    if uploaded is not None:
+        try:
+            file_text = uploaded.read().decode("utf-8", errors="replace")
+        except Exception:
+            file_text = ""
+
+    report = st.text_area(
+        "Report / symptoms",
+        value=spoken or file_text,
+        height=170,
+        placeholder="e.g. my shoulder has been hurting — or paste a doctor report.",
+    )
+
+    if st.button("Recommend exercises", type="primary") and report.strip():
+        with st.spinner("Selecting from the exercise library…"):
+            try:
+                result = recommend.recommend(report)
+            except RuntimeError as exc:
+                st.warning(_OFFLINE)
+                st.caption(str(exc))
+                result = None
+        if result is not None:
+            if result["regions"]:
+                st.caption("Detected areas: " + ", ".join(result["regions"]))
+            st.markdown(result["recommendation"])
+            if result["exercises"]:
+                st.markdown("**How to perform the recommended exercises**")
+                for ex in result["exercises"]:
+                    with st.expander(ex["name"]):
+                        st.caption(
+                            f"{ex.get('level', '')} · {ex.get('category', '')} · "
+                            f"targets {', '.join(ex.get('primaryMuscles') or [])}"
+                        )
+                        for i, step in enumerate(ex.get("instructions") or [], 1):
+                            st.write(f"{i}. {step}")

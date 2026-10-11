@@ -11,6 +11,8 @@ contract.
 - `rehab_arm.py` - session controller and command line
 - `servo.py` - Feetech servo bus (and a simulated bus for testing without hardware)
 - `calibration/` - backup of the LeRobot calibration for our two arms
+- `SAFETY.md` - what limits harm today, what is not safe yet, and the checks to
+  pass before a model touches a person
 - `HANDOFF.md` - where the arm work stands, how to run things on the Ryzen PC,
   and fixes for the problems hit so far
 - `TRAINING_HANDOFF.md` - how to train the wrist-grasp model from the recorded

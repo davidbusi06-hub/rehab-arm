@@ -262,16 +262,28 @@ class DashboardLoop(Base):
         self.write_session(1)                       # older file: no cap, 0 of 10 reps
         s = suggest.make_suggestion("p01")
         self.assertEqual(s["current"]["assist_level"], suggest.ARM_DEFAULT_ASSIST_CAP)
-        self.assertEqual(s["suggested"]["assist_level"], suggest.ARM_DEFAULT_ASSIST_CAP + 5)
+        self.assertEqual(s["suggested"]["assist_level"], suggest.ASSIST_CAP_MAX)   # already at the arm's maximum
+        self.assertIn("already at its 45% maximum", s["rationale"])
         self.assertIn("assumed", s["rationale"])
 
-    def test_suggested_cap_stays_within_0_and_100(self):
-        self.arm_session(1, cap=98.0, done=8)
-        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], 100.0)
+    def test_suggested_cap_stays_within_what_the_arm_applies(self):
+        self.arm_session(1, cap=98.0, done=8)       # operator had raised the ceiling for that session
+        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], suggest.ASSIST_CAP_MAX)
         (self.out / "session_001.json").unlink()
         for sid, share in enumerate((40.0, 35.0, 30.0, 25.0), start=1):
             self.arm_session(sid, cap=3.0, assist=share)
-        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], 0.0)
+        self.assertEqual(suggest.make_suggestion("p01")["suggested"]["assist_level"], suggest.ASSIST_CAP_MIN)
+
+    def test_approved_range_travels_from_the_dashboard_to_the_arm(self):
+        reps = [{"rom_deg": 60.0, "assist_pct": 0.0, "peak_resistance": 5.0, "safety_stop": False}] * 10
+        for sid in (1, 2):
+            rehab_arm.write_session(self.out, sid, "p01", f"2026-10-1{sid}T09:00:00", 10, reps, 45.0, 60.0, "elbow_flex")
+        s = suggest.make_suggestion("p01", goal_rom_deg=75.0)
+        self.assertEqual((s["rule"], s["suggested"]["target_rom_deg"]), ("range_ready", 65.0))
+        suggest.save_suggestion(s)
+        suggest.approve("p01", s["suggested"])
+        plan = rehab_arm.resolve_session(self.args())
+        self.assertEqual((plan["target_rom"], plan["target_reps"], plan["assist_cap"]), (65.0, 10, 45.0))
 
 
 class SessionFile(Base):
@@ -335,6 +347,55 @@ class EndStops(unittest.TestCase):
             self.run_with((0, 2048 + round(62 * ticks_per_deg)), direction=1)
         reps, _ = self.run_with((0, 2048 + round(64 * ticks_per_deg)), direction=1)
         self.assertEqual(len(reps), 2)
+
+
+class RangeOfMotion(Base):
+    def test_session_file_records_target_range_and_joint(self):
+        path = rehab_arm.write_session(self.out, 8, "p01", "2026-10-10T09:00:00", 10, [], 45.0, 62.46, "elbow_flex")
+        data = json.loads(path.read_text())
+        self.assertEqual((data["target_rom_deg"], data["joint"]), (62.5, "elbow_flex"))
+        self.assertEqual(list(data)[-1], "reps")
+
+    def test_older_callers_still_get_the_original_fields(self):
+        path = rehab_arm.write_session(self.out, 8, "p01", "2026-10-10T09:00:00", 10, [], 45.0)
+        self.assertNotIn("target_rom_deg", json.loads(path.read_text()))
+
+    def test_approved_range_is_applied(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 30.0, "target_reps": 12, "target_rom_deg": 70}))
+        self.write_session(7)
+        plan = rehab_arm.resolve_session(self.args())
+        self.assertEqual((plan["target_rom"], plan["target_reps"], plan["assist_cap"]), (70.0, 12, 30.0))
+        self.assertTrue(any("range 70 deg" in n for n in plan["notes"]))
+
+    def test_suggestion_without_a_range_leaves_the_default(self):
+        self.write_suggestion(suggestion())
+        self.write_session(7)
+        self.assertEqual(rehab_arm.resolve_session(self.args())["target_rom"], rehab_arm.DEFAULT_TARGET_ROM)
+
+    def test_explicit_target_rom_overrides_the_suggestion(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 30.0, "target_reps": 12, "target_rom_deg": 70}))
+        self.write_session(7)
+        plan = rehab_arm.resolve_session(self.args(target_rom=50.0))
+        self.assertEqual(plan["target_rom"], 50.0)
+        self.assertTrue(any("overrides the approved range" in n for n in plan["notes"]))
+
+    def test_unusable_approved_range_is_refused(self):
+        for bad in (2, 200, "70", True):
+            with self.subTest(bad=bad):
+                self.write_suggestion(suggestion(
+                    suggested={"assist_level": 30.0, "target_reps": 12, "target_rom_deg": bad}))
+                with self.assertRaises(SuggestionError):
+                    rehab_arm.resolve_session(self.args())
+
+    def test_session_command_runs_and_records_the_approved_range(self):
+        self.write_suggestion(suggestion(suggested={"assist_level": 30.0, "target_reps": 2, "target_rom_deg": 50}))
+        self.write_session(7)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rehab_arm.cmd_session(self.args(sim=True, joint="elbow_flex", target_rom=None, direction=0,
+                                            resistance=0.0, max_minutes=15.0, session_id=None,
+                                            free_others=False, port=None))
+        data = json.loads((self.out / "session_008.json").read_text())
+        self.assertEqual((data["target_rom_deg"], data["joint"], data["target_reps"]), (50.0, "elbow_flex", 2))
 
 
 class RecordingBus(SimBus):
