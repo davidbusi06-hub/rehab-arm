@@ -18,10 +18,15 @@ Division of labour (see README):
 Run with:  streamlit run app.py
 """
 
+import json
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
 import analysis
+import feedback
+import llm
 import qa
 import suggest
 import summary
@@ -79,8 +84,8 @@ trend = analysis.patient_trend(patient_id)  # one stats dict per session
 st.title(f"Rehab Robot Dashboard — {patient_id}")
 st.caption(f"{len(sessions)} session(s) on record")
 
-tab_sessions, tab_suggest, tab_trends, tab_insight = st.tabs(
-    ["Sessions", "Next-session suggestion", "Trends", "Summary & Q&A"]
+tab_sessions, tab_suggest, tab_trends, tab_daily, tab_insight = st.tabs(
+    ["Sessions", "Next-session suggestion", "Trends", "Daily feedback", "Summary & Q&A"]
 )
 
 
@@ -212,6 +217,46 @@ _OFFLINE = (
     "Numbers and charts are unaffected; prose will return once the model "
     "is back."
 )
+
+with tab_daily:
+    st.subheader("Personalized daily feedback")
+    st.caption(
+        "Review recorded progress and areas to discuss with the therapist. "
+        "Dates follow the session records. Rep goals measure activity completion; "
+        "clinical progress needs therapist review."
+    )
+    day = st.date_input("Day to review", value=date.today(), key=f"day_{patient_id}")
+    use_goal = st.checkbox("Compare with a therapist-set daily rep goal")
+    goal = st.number_input("Daily rep goal", min_value=1, value=30, step=1) if use_goal else None
+    report = analysis.daily_progress(patient_id, day, goal)
+    daily = report["current_day"]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Sessions recorded", daily["session_count"])
+    c2.metric("Reps / session targets", f"{daily['completed_reps']} / {daily['target_reps']}")
+    c3.metric("Safety stops", daily["safety_stops"])
+    if not daily["session_count"]:
+        st.info("No sessions recorded on this date. Choose a date from the Sessions tab to review past data.")
+    elif goal is not None:
+        st.info("Daily rep goal met." if report["daily_rep_goal_met"] else "Daily rep goal not yet met in the recorded sessions.")
+    previous = report["previous_recorded_day"]
+    if previous:
+        st.caption(f"Comparison: previous recorded day, {previous['started_at']}.")
+    st.caption(f"Feedback runs through local Ollama ({llm.MODEL}).")
+    with st.expander("Evidence used for feedback"):
+        st.json(report)
+    # Key by the full evidence so changing patient, date, goal or session data
+    # cannot display an answer generated for a different report.
+    evidence_key = json.dumps(report, sort_keys=True)
+    if st.button("Generate personalized feedback", disabled=not daily["session_count"]):
+        with st.spinner("Reviewing this patient's history with Ollama…"):
+            try:
+                st.session_state["daily_feedback"] = (evidence_key, feedback.generate(report))
+            except RuntimeError as exc:
+                st.warning(_OFFLINE)
+                st.caption(str(exc))
+    saved_feedback = st.session_state.get("daily_feedback")
+    if saved_feedback and saved_feedback[0] == evidence_key:
+        st.markdown(saved_feedback[1])
 
 with tab_insight:
     st.subheader("Plain-language summary")

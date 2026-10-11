@@ -6,6 +6,7 @@ it never computes or invents figures of its own.
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "data" / "sessions"
@@ -88,3 +89,52 @@ def patient_trend(patient_id):
         list[dict]: one session_stats() dict per session.
     """
     return [session_stats(s) for s in load_sessions(patient_id)]
+
+
+def daily_progress(patient_id, day, daily_rep_goal=None):
+    """Ground feedback in recorded calendar dates, excluding future sessions.
+
+    Daily means are weighted by repetitions, not session count. A rep goal
+    describes recorded activity only; it does not establish clinical recovery.
+    """
+    if daily_rep_goal is not None and daily_rep_goal <= 0:
+        raise ValueError("Daily rep goal must be positive.")
+    dated = sorted(
+        ((datetime.fromisoformat(s["started_at"]).date(), s)
+         for s in load_sessions(patient_id)),
+        key=lambda item: (item[0], item[1]["started_at"]),
+    )
+
+    def aggregate(date):
+        sessions = [s for d, s in dated if d == date]
+        reps = [r for s in sessions for r in s.get("reps", [])]
+        stats = session_stats({
+            "session_id": None, "started_at": date.isoformat(),
+            "target_reps": sum(s["target_reps"] for s in sessions),
+            "reps": reps,
+        })
+        if not reps:
+            for key in ("avg_rom_deg", "avg_assist_pct", "avg_peak_resistance"):
+                stats[key] = None
+        stats["session_count"] = len(sessions)
+        return stats
+
+    previous_dates = sorted({d for d, _ in dated if d < day})
+    current = aggregate(day)
+    previous = aggregate(previous_dates[-1]) if previous_dates else None
+    deltas = {}
+    if previous:
+        for key in ("avg_rom_deg", "avg_assist_pct", "avg_peak_resistance",
+                    "completed_reps", "safety_stops"):
+            if current[key] is not None and previous[key] is not None:
+                deltas[key] = round(current[key] - previous[key], 1)
+    return {
+        "patient_id": patient_id, "date": day.isoformat(),
+        "current_day": current, "previous_recorded_day": previous,
+        "change_from_previous_recorded_day": deltas,
+        "daily_rep_goal": daily_rep_goal,
+        "daily_rep_goal_met": (current["completed_reps"] >= daily_rep_goal
+                               if daily_rep_goal is not None and current["session_count"]
+                               else None),
+        "history_through_selected_day": [session_stats(s) for d, s in dated if d <= day],
+    }

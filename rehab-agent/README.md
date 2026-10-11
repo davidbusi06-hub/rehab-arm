@@ -57,6 +57,16 @@ and the prose tabs show an "insight engine offline" notice.
    patient's whole history.
 4. **Summary & Q&A** — a plain-language progress summary and grounded answers to
    free-text questions.
+5. **Daily feedback** — select a date and generate personalized Ollama feedback
+   about observed progress, areas to discuss with the therapist, and an optional
+   therapist-set daily rep goal. Uses only that patient's history through the
+   selected date and compares against the previous recorded day. Daily averages
+   are weighted by repetitions; days without reps have no movement averages.
+   Meeting a rep goal measures recorded activity, not clinical recovery. Without
+   a therapist goal the model cannot judge whether daily progress is enough.
+   The evidence remains visible even when Ollama is offline. Dates use the
+   calendar date stored in each session; feedback must be regenerated when the
+   patient, date, goal, or session records change.
 
 ## Suggestion rules (`suggest.py`)
 All read from `analysis.patient_trend(patient_id)`:
