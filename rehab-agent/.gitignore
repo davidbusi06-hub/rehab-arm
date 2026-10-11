@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .venv/
 data/profiles/
+# API keys for the dashboard (e.g. ELEVENLABS_API_KEY); never commit
+.streamlit/secrets.toml

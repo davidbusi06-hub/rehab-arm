@@ -20,6 +20,7 @@ Run with:  streamlit run app.py
 
 import html
 import json
+import os
 from datetime import date
 
 import pandas as pd
@@ -35,6 +36,16 @@ import recommend
 import stt
 import suggest
 import summary
+
+# Make the ElevenLabs key available to stt.py (which reads it from the
+# environment) without hardcoding it in source. The value lives in
+# .streamlit/secrets.toml (kept out of version control). Any existing
+# ELEVENLABS_API_KEY in the environment wins, so you can still override it.
+try:
+    if "ELEVENLABS_API_KEY" in st.secrets and not os.environ.get("ELEVENLABS_API_KEY"):
+        os.environ["ELEVENLABS_API_KEY"] = str(st.secrets["ELEVENLABS_API_KEY"])
+except Exception:
+    pass
 
 # Self-contained SO-101 arm animation embedded on the Home tab (its own iframe,
 # so it carries its own styles/script and blends with the light pastel theme).
