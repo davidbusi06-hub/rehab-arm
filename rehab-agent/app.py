@@ -212,8 +212,14 @@ DARK_CSS = """
   .stButton button[kind="primary"] * { color: #16202a !important; }
   [data-testid="stFormSubmitButton"] button { background: #8FB8DE !important; border-color: #8FB8DE !important; }
   [data-testid="stFormSubmitButton"] button * { color: #16202a !important; }
-  [data-baseweb="select"] div { background: #20212A !important; }
-  [data-baseweb="select"] svg { fill: #ECEAF2 !important; }
+  /* The select box is a group wrapping a text input and an arrow button; the wrapper kept
+     the light theme's background, which showed as a white square behind the arrow. */
+  [data-testid="stSelectbox"] div[role="group"] {
+    background: #20212A !important; border-color: #30313B !important;
+  }
+  [data-testid="stSelectbox"] button { background: transparent !important; }
+  [data-testid="stSelectbox"] svg { color: #ECEAF2 !important; fill: currentColor; }
+  [role="listbox"], [role="listbox"] [role="option"] { background: #20212A !important; color: #ECEAF2 !important; }
   [data-testid="stNumberInput"] button { background: #2A2B36 !important; border-color: #30313B !important; }
   [data-testid="stNumberInput"] button svg { fill: #ECEAF2 !important; }
   .sb-card { background: rgba(32, 33, 42, 0.85) !important; border-color: #30313B !important; }
