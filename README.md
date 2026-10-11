@@ -11,6 +11,8 @@ contract.
 - `rehab_arm.py` - session controller and command line
 - `servo.py` - Feetech servo bus (and a simulated bus for testing without hardware)
 - `calibration/` - backup of the LeRobot calibration for our two arms
+- `PROJECT_SUMMARY.md` - what the project is, a presentation script, the tools used
+  and what is still unproven; written by a teammate for the hackathon pitch
 - `SAFETY.md` - what limits harm today, what is not safe yet, and the checks to
   pass before a model touches a person
 - `HANDOFF.md` - where the arm work stands, how to run things on the Ryzen PC,
