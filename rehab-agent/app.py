@@ -21,8 +21,9 @@ Run with:  streamlit run app.py
 import html
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -205,8 +206,23 @@ DARK_CSS = """
   }
   section[data-testid="stSidebar"] * { color: #ECEAF2 !important; }
   [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: #9A9CAB !important; }
-  .stButton > button { background: #20212A !important; color: #ECEAF2 !important; border-color: #30313B !important; }
-  .stButton > button[kind="primary"] { background: #8FB8DE !important; color: #16202a !important; }
+  .stButton button { background: #20212A !important; color: #ECEAF2 !important; border-color: #30313B !important; }
+  .stButton button * { color: #ECEAF2 !important; fill: #ECEAF2 !important; }
+  .stButton button[kind="primary"] { background: #8FB8DE !important; color: #16202a !important; }
+  .stButton button[kind="primary"] * { color: #16202a !important; }
+  [data-testid="stFormSubmitButton"] button { background: #8FB8DE !important; border-color: #8FB8DE !important; }
+  [data-testid="stFormSubmitButton"] button * { color: #16202a !important; }
+  [data-baseweb="select"] div { background: #20212A !important; }
+  [data-baseweb="select"] svg { fill: #ECEAF2 !important; }
+  [data-testid="stNumberInput"] button { background: #2A2B36 !important; border-color: #30313B !important; }
+  [data-testid="stNumberInput"] button svg { fill: #ECEAF2 !important; }
+  .sb-card { background: rgba(32, 33, 42, 0.85) !important; border-color: #30313B !important; }
+  section[data-testid="stSidebar"] .sb-sub, section[data-testid="stSidebar"] .sb-title,
+  section[data-testid="stSidebar"] .sb-row span { color: #A9A6B8 !important; }
+  section[data-testid="stSidebar"] span.sb-new { background: #1F3A2C !important; color: #9AD9B5 !important; }
+  .stMarkdown span.sg-chip.sg-up   { background: #1F3A2C !important; color: #9AD9B5 !important; }
+  .stMarkdown span.sg-chip.sg-down { background: #40291C !important; color: #F0B58F !important; }
+  .stMarkdown span.sg-chip.sg-same { background: #2A2B36 !important; color: #B9B6C4 !important; }
   input, textarea, [data-baseweb="select"] > div, [data-baseweb="input"] > div {
     background: #20212A !important; color: #ECEAF2 !important;
   }
@@ -260,6 +276,21 @@ st.markdown(
                   overflow-wrap: anywhere; }
       .pt-detail { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
       @media (max-width: 900px) { .pt-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+      /* Sidebar: the patient at a glance */
+      .sb-card  { background: rgba(255, 255, 255, 0.72); border: 1px solid var(--border);
+                  border-radius: 14px; padding: 12px 14px; margin-top: 12px; }
+      .sb-name  { font-size: 1.2rem; font-weight: 680; color: var(--ink); overflow-wrap: anywhere; }
+      .sb-sub   { font-size: 0.82rem; color: var(--muted); }
+      .sb-quote { font-size: 0.86rem; color: var(--ink); margin-top: 8px; font-style: italic; }
+      .sb-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+                  letter-spacing: 0.04em; margin-bottom: 4px; }
+      .sb-row   { display: flex; justify-content: space-between; gap: 10px; font-size: 0.86rem;
+                  padding: 3px 0; color: var(--muted); }
+      .sb-row b { color: var(--ink); font-weight: 600; text-align: right; }
+      .sb-item  { font-size: 0.86rem; color: var(--ink); padding: 3px 0; }
+      .sb-new   { background: #E3F3EA; color: #24613F; border-radius: 999px; font-size: 0.7rem;
+                  font-weight: 700; padding: 1px 7px; margin-left: 6px; }
 
       /* Suggestion rows: setting, latest value, next value, change */
       .sg-head { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
@@ -428,9 +459,12 @@ st.markdown(
 def _summary_cells():
     """The four at-a-glance cells: (label, value, detail). Numbers come from analysis.py."""
     latest = progress["latest"]
-    new_milestones = sum(1 for m in earned if m["new"])
-    who = ("Patient", display_name,
-           f"{len(earned)} milestone(s)" + (f", {new_milestones} new" if new_milestones else ""))
+    if latest is None:
+        who = ("Latest session", "None yet", "No sessions with repetitions")
+    else:
+        who = ("Latest session", latest["started_at"][:10],
+               f"Session {latest['session_id']}: {latest['completed_reps']} of {latest['target_reps']} reps, "
+               f"{latest['safety_stops']} safety stop(s)")
 
     if latest is None:
         rom = ("Range of motion", "No reps yet", "Nothing recorded to measure")
@@ -466,6 +500,50 @@ st.markdown(
     ) + "</div>",
     unsafe_allow_html=True,
 )
+
+def _sidebar_rows(rows):
+    return "".join(f'<div class="sb-row"><span>{html.escape(k)}</span><b>{html.escape(v)}</b></div>'
+                   for k, v in rows)
+
+
+def _goal(value, unit=""):
+    return "not set" if value is None else f"{value:g}{unit}"
+
+
+with st.sidebar:
+    card = [f'<div class="sb-card"><div class="sb-name">{html.escape(display_name)}</div>'
+            f'<div class="sb-sub">Patient {html.escape(patient_id)}</div>']
+    if profile["motivation"]:
+        card.append(f'<div class="sb-quote">Working towards: {html.escape(profile["motivation"])}</div>')
+    card.append("</div>")
+
+    card.append('<div class="sb-card"><div class="sb-title">Goals</div>' + _sidebar_rows([
+        ("Range of motion", _goal(profile["target_rom_deg"], "°")),
+        ("Reps per day", _goal(profile["daily_rep_goal"])),
+        ("Sessions per week", _goal(profile["sessions_per_week_goal"])),
+    ]) + "</div>")
+
+    history = [("Sessions recorded", str(len(sessions)))]
+    if trend:
+        history += [("First session", trend[0]["started_at"][:10]),
+                    ("Latest session", trend[-1]["started_at"][:10])]
+    if progress["baseline"] is not None:
+        history += [("Baseline range", f"{progress['baseline']['avg_rom_deg']:g}°"),
+                    ("Latest range", f"{progress['latest']['avg_rom_deg']:g}°"),
+                    ("Personal best", f"{progress['personal_best_rom_deg']:g}°")]
+    card.append('<div class="sb-card"><div class="sb-title">History</div>' + _sidebar_rows(history) + "</div>")
+
+    if earned:
+        items = "".join(
+            f'<div class="sb-item">{html.escape(m["title"])}'
+            + ('<span class="sb-new">new</span>' if m["new"] else "") + "</div>"
+            for m in earned)
+        card.append(f'<div class="sb-card"><div class="sb-title">Milestones</div>{items}</div>')
+
+    st.markdown("".join(card), unsafe_allow_html=True)
+    if not patient_profile.exists(patient_id):
+        st.caption("No profile yet. Set the name and goals in the Personal plan tab.")
+
 
 # Ordered by use: the patient, the decision, their plan, then the detail. The
 # project description sits last.
@@ -689,19 +767,35 @@ with tab_trends:
     if len(trend) < 2:
         st.info("At least two sessions are needed to show a trend.")
     else:
-        df = pd.DataFrame(trend).set_index("session_id")
+        df = pd.DataFrame(trend)
+
+        def trend_chart(columns, colors, bars=False):
+            """A static chart of one or more per-session series ({column: label})."""
+            data = df[["session_id", *columns]].rename(columns=columns).melt(
+                "session_id", var_name="series", value_name="value")
+            labels = list(columns.values())
+            chart = alt.Chart(data).encode(
+                x=alt.X("session_id:O", title="Session", axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("value:Q", title=None),
+                color=alt.Color("series:N", scale=alt.Scale(domain=labels, range=colors),
+                                legend=alt.Legend(title=None, orient="bottom") if len(labels) > 1 else None),
+                tooltip=[alt.Tooltip("session_id:O", title="Session"), alt.Tooltip("series:N", title="Series"),
+                         alt.Tooltip("value:Q", title="Value")],
+            )
+            chart = chart.mark_bar() if bars else chart.mark_line(point=True)
+            st.altair_chart(chart.properties(height=260), width="stretch")
 
         st.markdown("**Range of motion (degrees)**")
-        st.line_chart(df[["avg_rom_deg"]], color=C_BLUE)
+        trend_chart({"avg_rom_deg": "Average range of motion"}, [C_BLUE])
 
-        st.markdown("**Robot assist (%)** — lower is more independent")
-        st.line_chart(df[["avg_assist_pct"]], color=C_LAVENDER)
+        st.markdown("**Robot assist (%)** - lower is more independent")
+        trend_chart({"avg_assist_pct": "Share done by the robot"}, [C_LAVENDER])
 
         st.markdown("**Reps: completed vs target**")
-        st.line_chart(df[["completed_reps", "target_reps"]], color=[C_MINT, C_PEACH])
+        trend_chart({"completed_reps": "Completed", "target_reps": "Target"}, [C_MINT, C_PEACH])
 
         st.markdown("**Safety stops per session**")
-        st.bar_chart(df[["safety_stops"]], color=C_ROSE)
+        trend_chart({"safety_stops": "Safety stops"}, [C_ROSE], bars=True)
 
 
 # --------------------------------------------------------------------------
@@ -830,7 +924,8 @@ with tab_daily:
         "Dates follow the session records. Rep goals measure activity completion; "
         "clinical progress needs therapist review."
     )
-    day = st.date_input("Day to review", value=date.today(), key=f"day_{patient_id}")
+    latest_day = datetime.fromisoformat(trend[-1]["started_at"]).date() if trend else date.today()
+    day = st.date_input("Day to review", value=latest_day, key=f"day_{patient_id}")
     saved_goal = profile["daily_rep_goal"]
     # Keyed by the saved goal so a newly saved profile re-seeds these widgets.
     use_goal = st.checkbox("Compare with a therapist-set daily rep goal",
