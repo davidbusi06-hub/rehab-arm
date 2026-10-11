@@ -14,6 +14,9 @@ and chart renders even when the model is offline.
 - **Person A (data & insight):** `generate_fake.py`, `analysis.py`, `llm.py`,
   `summary.py`, `qa.py`, `validate.py`
 - **Person B (UI & suggestions):** `app.py` (Streamlit), `suggest.py`
+- **Personalization:** `patient_profile.py`, the personal-progress functions at the
+  end of `analysis.py`, `feedback.py`, and the Personal plan tab in `app.py`.
+  Profiles are saved in `data/profiles/` (git-ignored: they describe a person)
 
 ## The contract that keeps the agent honest
 - **`analysis.py` is the single source of truth for every number.** `app.py`
@@ -67,6 +70,26 @@ and the prose tabs show an "insight engine offline" notice.
    The evidence remains visible even when Ollama is offline. Dates use the
    calendar date stored in each session; feedback must be regenerated when the
    patient, date, goal, or session records change.
+6. **Personal plan** — the personalization hub. The therapist saves a profile
+   per patient (preferred name, tone for written feedback, range-of-motion
+   target, daily rep goal, sessions-per-week goal, what the patient is working
+   towards, and how they want to mark reaching their target). The tab then
+   shows, from that patient's own records:
+   - **What to discuss first** — a ranked list in a fixed order: safety stops,
+     finishing the set, range against their target, reliance on the robot,
+     attendance. Discussion topics only; settings still change only through
+     the Next-session suggestion tab.
+   - **Progress against their own baseline** — latest session versus the
+     rep-weighted average of their first three sessions, their personal best,
+     and percent of the way from baseline to their target.
+   - **Milestones** — first session, session counts, a new personal best,
+     streaks without a safety stop or with every rep completed, and target
+     reached. They mark recorded activity, not clinical recovery.
+
+   Daily feedback uses the profile: the rep goal is prefilled, and the model is
+   given the profile, personal progress, milestones and discussion order so it
+   can address the patient by name, in the chosen tone, against their own
+   goals. Private therapist notes are never sent to the model.
 
 ## Suggestion rules (`suggest.py`)
 All read from `analysis.patient_trend(patient_id)`:
