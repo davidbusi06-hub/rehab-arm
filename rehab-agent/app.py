@@ -905,7 +905,7 @@ with tab_personal:
             st.caption("The latest session is still one of the baseline sessions, so changes "
                        "from baseline will be small until more sessions are recorded.")
         if progress["progress_to_target_pct"] is None:
-            st.caption("Set a range-of-motion target below to see progress towards it.")
+            st.caption("Set a range-of-motion target in the profile above to see progress towards it.")
         else:
             st.progress(
                 progress["progress_to_target_pct"] / 100,
