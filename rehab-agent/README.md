@@ -119,8 +119,9 @@ Summary & Q&A, Training plan, About. (The numbering below predates that order.)
    model only picks among real library entries). Speech-to-text (`stt.py`) runs
    locally by default; the optional ElevenLabs backend sends audio to a cloud
    service and needs `ELEVENLABS_API_KEY`, set in the environment or in
-   `.streamlit/secrets.toml` (git-ignored; create it yourself, it is never in the
-   repo). Advisory only: a clinician approves.
+   `.streamlit/secrets.toml` (git-ignored, never in the repo: copy
+   `.streamlit/secrets.toml.example` to that name and fill in your key; needs
+   `pip install "elevenlabs>=1.0"`). Advisory only: a clinician approves.
 
 `data/exercises/exercises.json` is the public-domain free-exercise-db library.
 
