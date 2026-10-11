@@ -76,13 +76,15 @@ The cleanest documented sets are `lift_birdseye` and `side_slide_right`. Some re
 - Saved a checkpoint at **2,000 of a planned 20,000 steps** before a machine restart interrupted training.
 - Documented training loss decreasing from approximately **2.57 to 1.03** during that run. This measures fit during training, not real-world task success.
 - Prepared instructions for subsequent GPU training with PyTorch/ROCm and for transferring model artifacts back to the robot machine.
+- GPU training on the recorded datasets is under way by a teammate, according to the team; no result has been recorded in this repository yet.
 - Considered SmolVLA as a future language-conditioned policy option; its use is not documented as completed.
 
 The existing checkpoint has **never been run on the arm**, according to the handoff. The learned-policy work is separate from the working rule-based rehabilitation controller.
 
 ### 5. Therapist dashboard and personalized feedback
 
-- Built a Streamlit dashboard with patient selection, session reports, progress charts, and next-session suggestions.
+- Built a Streamlit dashboard with patient selection, session reports, progress charts, and next-session suggestions. The two dashboard versions that existed during the hackathon have been merged into one, in `rehab-agent/`.
+- Laid it out around the therapist's workflow: a sidebar with the patient's goals, history and milestones; a summary strip on every tab (latest session, range against goal, first thing to discuss, approval status); tabs ordered by use; day and night modes; usable at phone and tablet widths.
 - Centralized numerical calculations in `analysis.py` so the UI, suggestions, and AI explanations share the same measurements.
 - Tracked range of motion, completed repetitions, assisted movement share, peak motor load, and safety stops.
 - Added patient profiles, therapist-set goals, personal baselines, personal bests, milestones, and ranked discussion topics.
@@ -90,13 +92,18 @@ The existing checkpoint has **never been run on the arm**, according to the hand
 - Connected Ollama with a default `llama3.1:8b` model for local summaries, free-text Q&A, and personalized explanations.
 - Designed the AI layer to receive computed evidence rather than calculate the displayed statistics itself.
 - Kept numerical charts available when the language model is offline.
+- Added a Training plan tab: from a typed, uploaded or dictated doctor's report, the local model picks 3 to 5 exercises from a public exercise library (it can only choose real library entries), for a clinician to approve.
+- Added speech-to-text for that tab, running locally by default.
 
-The dashboard uses local model inference. Real session files, demonstration data, and models are kept outside the public code repository according to the project conventions.
+The dashboard uses local model inference, with one optional exception: the speech-to-text can be switched to ElevenLabs, a cloud service, in which case the audio leaves the machine. Do not claim "fully local" while that option is in use. Real session files, demonstration data, and models are kept outside the public code repository according to the project conventions.
 
 ### 6. Therapist approval and session integration
 
 - Defined JSON contracts for session records and next-session suggestions.
-- Implemented deterministic suggestion rules that consider safety stops, repetition completion, and assistance trends.
+- Implemented deterministic suggestion rules, checked in a fixed order: safety stops, repetition completion, whether repetitions reached the session's target range of motion, whether that range was reached unaided, and assistance trends.
+- Made the range of motion part of the loop: the arm records each session's target range, and an approved suggestion can set the next session's range. The range only grows towards a goal the therapist set in the patient's profile, never past it.
+- Kept suggested assistance within the 15-45% the arm actually applies.
+- Made every suggestion explain itself: which rule decided, and why each other rule did not.
 - Required explicit therapist approval before a suggestion becomes eligible for the next session.
 - Added checks for invalid, stale, mismatched, and already-used suggestions.
 - Aligned `assist_level` in the dashboard with `assist_cap` in the arm controller: both represent the maximum assistance torque percentage.
@@ -114,7 +121,10 @@ The full approval-to-next-session loop is documented as working **in simulation*
 | LeRobot | Calibration, teleoperation, datasets, and policy training |
 | OpenCV / V4L2 | Camera capture and image handling |
 | MJPEG / local HTTP server | Live browser camera feeds |
-| Streamlit / pandas | Therapist interface, tables, and charts |
+| Streamlit / pandas / Altair | Therapist interface, tables, and charts |
+| faster-whisper | Local speech-to-text for the Training plan tab |
+| ElevenLabs Scribe (optional) | Cloud speech-to-text alternative; sends audio off the machine |
+| free-exercise-db | Public-domain exercise library the recommender chooses from |
 | Ollama / Llama 3.1 8B | Local language-model inference |
 | ACT | Initial imitation-learning policy training |
 | PyTorch / ROCm | Documented GPU training path; completion not confirmed |
@@ -122,7 +132,7 @@ The full approval-to-next-session loop is documented as working **in simulation*
 | Conda | Python environment management |
 | Bash / GNU Screen / SSH | Recording automation, persistent sessions, and remote access |
 | Git / GitHub / VS Code | Version control, collaboration, and development |
-| Python `unittest` | Automated checks for feedback, personalization, and session integration |
+| Python `unittest` | Automated checks for the controller, session integration, suggestion rules, feedback, and personalization (79 tests) |
 
 ## Development process
 
@@ -152,7 +162,8 @@ The full approval-to-next-session loop is documented as working **in simulation*
 | **Grounded generation** | AI explanations use supplied measurements and patient context |
 | **Deterministic analytics** | Ordinary code computes the numbers used throughout the system |
 | **Hardware abstraction** | Real and simulated motor buses share an interface |
-| **Closed-loop integration** | Session results inform approved next-session settings; demonstrated in simulation |
+| **Closed-loop integration** | Session results inform approved next-session settings (assistance, repetitions, range of motion); demonstrated in simulation |
+| **Explainable recommendation** | Each suggestion lists the rule that decided and why the others did not apply |
 | **Personalized longitudinal analytics** | Progress is tracked over time against a patient's own baseline and goals |
 | **Data contracts** | Agreed formats keep the robot, analytics, and dashboard compatible |
 
@@ -160,11 +171,12 @@ Avoid describing the project as clinically validated, fully autonomous, a deploy
 
 ## Remaining work
 
-- Complete training and evaluate learned policies on hardware.
-- Address excessive gripper squeezing observed during demonstration recording.
-- Validate dashboard-approved settings on the real arm.
+- Complete training and evaluate learned policies on hardware. No learned policy has run on the arm.
+- Address excessive gripper squeezing observed during demonstration recording, and carry out the measures in `SAFETY.md`. That file is a plan: padding the jaws, an emergency stop, a grip limit and a speed limit have not been built or tested.
+- Validate dashboard-approved settings on the real arm, including the new range-of-motion hand-off. The three real sessions predate the code that records a target range.
+- Exercise the dashboard's model-backed features end to end in the merged app (summary, Q&A, daily feedback, exercise recommender, speech-to-text). So far only their layout has been checked.
+- Load real sessions into the dashboard; it currently shows synthetic demo patients only.
 - Review outstanding episodes and confirm directional task labels.
-- Reconcile the separate live dashboard with this repository's personalization features.
 - Continue tuning and validating protective limits before broader use.
 
 ## Latest workspace work
@@ -179,3 +191,5 @@ Avoid describing the project as clinically validated, fully autonomous, a deploy
 ## Source and status note
 
 This summary is based on the checked-out code, `README.md`, `rehab-agent/README.md`, `HANDOFF.md`, `TRAINING_HANDOFF.md`, integration notes, and actions verified during this chat. Dataset counts and training results come from the handoff notes; the private data repository was not independently inspected. Later team work may change the documented status.
+
+**Updated 2026-10-11** to reflect work merged after this summary was first written: the single merged dashboard and its layout, the range-aware suggestion rules, the Training plan tab with its speech-to-text options, and the safety plan. The presentation script, the "Latest workspace work" log and the figures taken from the handoff notes are unchanged.
