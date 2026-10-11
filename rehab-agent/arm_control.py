@@ -165,6 +165,23 @@ def is_running():
     return _alive(_read_pid())
 
 
+# Seconds each exercise runs for, where the script's default is too short. The lift and
+# slide_left models often sit still for 8-9 s before moving (their demonstrations start
+# with a pause), so on the default 12-15 s they ran out of time mid-movement.
+EXERCISE_SECONDS = {"lift": 25, "slide_left": 25}
+
+
+def run_env(skip_grasp=False, base=None):
+    """Environment for a sequence.py run: gain, and a longer slot for the slow starters."""
+    env = dict(os.environ if base is None else base)
+    env["GAIN"] = "32"  # follower position P coefficient, fixed at 32 for every run
+    for name, seconds in EXERCISE_SECONDS.items():
+        env[f"SECS_{name.upper()}"] = str(seconds)      # read by sequence.py per exercise
+    if skip_grasp:
+        env["SKIP_GRASP"] = "1"
+    return env
+
+
 def start(exercises, dry=False, skip_grasp=False):
     """Launch sequence.py for the given exercises on the follower arm (detached).
 
@@ -179,10 +196,7 @@ def start(exercises, dry=False, skip_grasp=False):
     if not exercises:
         return False, "No exercise selected."
 
-    env = dict(os.environ)
-    env["GAIN"] = "32"  # follower position P coefficient, fixed at 32 for every run
-    if skip_grasp:
-        env["SKIP_GRASP"] = "1"
+    env = run_env(skip_grasp)
     # sequence.py runs the grasp model first (reach + grasp the wrist), then each
     # named exercise model in turn, on one arm connection (grip held between them).
     args = [LEROBOT_PY, str(SEQUENCE), *exercises]
