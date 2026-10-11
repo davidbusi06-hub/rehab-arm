@@ -360,29 +360,30 @@ def _join(items):
 
 def spoken_plan(plan):
     """Reply to a request that matched a plan (before anything moves)."""
-    return (f"Okay. {plan['label']}. I will {plan['describe']}. "
-            "Rest your forearm on the table with your wrist over the marker, then press Start.")
+    return (f"Certainly. {plan['label']}. I will {plan['describe']}. "
+            "Rest your forearm on the table with your wrist over the marker, and press Start "
+            "when you are ready.")
 
 
 def spoken_no_plan():
-    return ("I didn't catch an exercise in that. You can ask for the shoulder, the forearm, "
-            "side to side, or the full sequence.")
+    return ("I'm afraid I didn't catch an exercise in that. You may ask for the shoulder, the "
+            "forearm, side to side, or the full sequence.")
 
 
 def spoken_start(plan, dry=False):
     if dry:
-        return f"Starting a practice run of the {plan['label'].lower()}. The arm will not move."
-    return (f"Starting the {plan['label'].lower()}. I'm reaching for your wrist now. "
-            "Keep your arm relaxed, and say stop or press Stop at any time.")
+        return f"Very good. Starting a practice run of the {plan['label'].lower()}. The arm will not move."
+    return (f"Right away. Starting the {plan['label'].lower()}. I am reaching for your wrist now. "
+            "Keep your arm relaxed, and press Stop at any time.")
 
 
 def spoken_stop():
-    return ("Stopped. I'm holding still with the grip closed. "
-            "Press Return to rest when you're ready for me to let go.")
+    return ("Stopped. I am holding position with the grip closed. "
+            "Press Return to rest when you would like me to let go.")
 
 
 def spoken_rest():
-    return "Letting go and returning to rest. Take your hand out as the gripper opens."
+    return "Of course. Letting go and returning to rest. Do take your hand out as the gripper opens."
 
 
 def spoken_result(last):
@@ -391,21 +392,21 @@ def spoken_result(last):
         return "The run ended before I reached for your wrist."
     practice = "That was a practice run, so the arm did not move. " if last.get("dry") else ""
     if not last["grasp"]:
-        return (practice + "I couldn't get hold of your wrist, so I skipped the exercises. "
-                "Check that your wrist is over the marker and we can try again.")
+        return (practice + "I'm afraid I could not get hold of your wrist, so I skipped the exercises. "
+                "If you check that your wrist is over the marker, we can try again.")
     tries = last.get("missed", 0) + 1
-    text = practice + ("I held your wrist on the first try. " if tries == 1
-                       else f"I held your wrist on attempt {tries}. ")
+    text = practice + ("All done. I held your wrist on the first try. " if tries == 1
+                       else f"All done. I held your wrist on attempt {tries}. ")
     moved = [m["label"].lower() for m in last.get("movement", []) if m["moved"]]
     stalled = [m["label"].lower() for m in last.get("movement", []) if not m["moved"]]
     if moved:
         text += f"The {_join(moved)} went through. "
     if stalled:
-        text += f"The {_join(stalled)} barely moved, so we may want to repeat {'it' if len(stalled) == 1 else 'them'}. "
+        text += f"The {_join(stalled)} barely moved, so I would suggest we repeat {'it' if len(stalled) == 1 else 'them'}. "
     if last.get("ended") == "grip lost":
         text += "I lost my grip part-way, so I stopped early. "
     elif last.get("ended") == "stopped":
-        return text + "You stopped the run, and I'm holding still."
+        return text + "You stopped the run, and I am holding still."
     return text + "The arm is back at rest."
 
 
