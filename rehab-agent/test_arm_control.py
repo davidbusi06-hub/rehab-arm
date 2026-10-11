@@ -107,5 +107,17 @@ class SpokenReplies(unittest.TestCase):
         self.assertTrue(text.endswith("holding still."))
 
 
+class RunEnvironment(unittest.TestCase):
+    def test_slow_starters_get_a_longer_slot(self):
+        env = arm_control.run_env(base={})
+        self.assertEqual((env["SECS_LIFT"], env["SECS_SLIDE_LEFT"]), ("25", "25"))
+        self.assertNotIn("SECS_SLIDE_RIGHT", env)       # reliable on the script's default
+        self.assertNotIn("SECS", env)                   # never override every exercise at once
+        self.assertNotIn("SKIP_GRASP", env)
+
+    def test_skip_grasp(self):
+        self.assertEqual(arm_control.run_env(skip_grasp=True, base={})["SKIP_GRASP"], "1")
+
+
 if __name__ == "__main__":
     unittest.main()
