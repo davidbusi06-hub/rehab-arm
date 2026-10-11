@@ -109,6 +109,15 @@ Summary & Q&A, Training plan, About. (The numbering below predates that order.)
      streaks without a safety stop or with every rep completed, and target
      reached. They mark recorded activity, not clinical recovery.
 
+   - **Doctor's prescription or therapy plan** — upload one file per patient
+     (.txt, .md or .pdf; PDF text needs `pip install pypdf`). It is stored only
+     on this machine under `data/prescriptions/` (git-ignored), can be read or
+     removed from the tab, and prefills the Training plan tab's recommender.
+
+   The patient picker and headings show each patient's preferred name, or
+   "Patient 2" for record `p02` until a name is set. Record ids appear only in
+   small print in the sidebar, and in the picker if two patients share a name.
+
    Daily feedback uses the profile: the rep goal is prefilled, and the model is
    given the profile, personal progress, milestones and discussion order so it
    can address the patient by name, in the chosen tone, against their own

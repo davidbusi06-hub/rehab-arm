@@ -4,3 +4,5 @@ __pycache__/
 data/profiles/
 # API keys for the dashboard (e.g. ELEVENLABS_API_KEY); never commit
 .streamlit/secrets.toml
+# doctors' prescriptions: medical documents about a person; never commit
+data/prescriptions/
