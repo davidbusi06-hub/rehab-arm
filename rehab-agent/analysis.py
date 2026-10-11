@@ -12,6 +12,12 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent / "data" / "sessions"
 
 
+# A rep counts as reaching the session's target range within this many degrees,
+# and as unaided when the robot did no more than this share of the movement.
+ROM_TOLERANCE_DEG = 2.0
+UNAIDED_ASSIST_PCT = 5.0
+
+
 def _mean(values):
     """Mean of a list, rounded to 1 decimal; 0.0 for an empty list."""
     return round(sum(values) / len(values), 1) if values else 0.0
@@ -62,13 +68,23 @@ def session_stats(session):
         dict with keys:
             session_id, started_at, avg_rom_deg, avg_assist_pct,
             avg_peak_resistance, completed_reps, target_reps, safety_stops,
-            assist_cap
+            assist_cap, target_rom_deg, joint, reps_reaching_target,
+            unaided_reps_reaching_target
 
         avg_assist_pct is the share of the movement the robot did;
         assist_cap is the torque cap (%) the arm ran the session with,
         or None for sessions recorded before the arm wrote it.
+        target_rom_deg is the range the patient was asked to reach and joint
+        the joint exercised, likewise None for older sessions. The two
+        "reaching target" counts are None whenever the target is unknown.
     """
     reps = session.get("reps", [])
+    target_rom = session.get("target_rom_deg")
+    reached = unaided = None
+    if target_rom is not None:
+        hits = [r for r in reps if r["rom_deg"] >= target_rom - ROM_TOLERANCE_DEG]
+        reached = len(hits)
+        unaided = sum(1 for r in hits if r["assist_pct"] <= UNAIDED_ASSIST_PCT)
     return {
         "session_id": session["session_id"],
         "started_at": session["started_at"],
@@ -79,6 +95,10 @@ def session_stats(session):
         "target_reps": session["target_reps"],
         "safety_stops": sum(1 for r in reps if r.get("safety_stop")),
         "assist_cap": session.get("assist_cap"),
+        "target_rom_deg": target_rom,
+        "joint": session.get("joint"),
+        "reps_reaching_target": reached,
+        "unaided_reps_reaching_target": unaided,
     }
 
 

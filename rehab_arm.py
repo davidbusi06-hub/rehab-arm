@@ -13,9 +13,11 @@ How the contract fields are measured:
     peak_resistance  peak motor load in the rep, percent of max torque
     safety_stop      a safety stop fired during the rep
 
-One field is added on top of the contract, per session rather than per rep:
+Three fields are added on top of the contract, per session rather than per rep:
     assist_cap       the assist torque cap the session ran with, percent of
                      max torque; this is what a suggestion's assist_level sets
+    target_rom_deg   the range of motion the patient was asked to reach
+    joint            the joint that was exercised
 
 Usage:
     python rehab_arm.py monitor
@@ -36,6 +38,10 @@ from servo import DEG_PER_TICK, JOINTS, TICKS_PER_REV, FeetechBus, SimBus
 READY, OUTBOUND, RETURN = "ready", "outbound", "return"
 MAX_MISSED_READS = 5
 DEFAULT_REPS = 10
+DEFAULT_TARGET_ROM = 60.0
+# Range of motion an approved suggestion may ask for. The joint's own end
+# stops are still checked when the session starts.
+SUGGESTED_ROM_MIN, SUGGESTED_ROM_MAX = 5.0, 150.0
 # Percent torque the assist may reach. Also the ceiling for an approved
 # suggestion's assist level: the dashboard can ask for less, never for more
 # than the operator allowed on the command line.
@@ -305,7 +311,8 @@ def next_session_id(out_dir):
     return highest + 1
 
 
-def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps, assist_cap):
+def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps, assist_cap,
+                  target_rom_deg=None, joint=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"session_{session_id:03d}.json"
@@ -319,6 +326,16 @@ def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps
         "assist_cap": round(assist_cap, 1),
         "reps": reps,
     }
+    # Written before "reps" so the settings read together at the top of the file.
+    extra = {}
+    if target_rom_deg is not None:
+        extra["target_rom_deg"] = round(target_rom_deg, 1)
+    if joint is not None:
+        extra["joint"] = joint
+    if extra:
+        reps_value = session.pop("reps")
+        session.update(extra)
+        session["reps"] = reps_value
     path.write_text(json.dumps(session, indent=2) + "\n")
     return path
 
@@ -390,9 +407,14 @@ def read_approved_suggestion(suggestions_dir, patient_id, out_dir):
         raise SuggestionError(f"{path}: suggested.assist_level must be a number from 0 to 100, got {assist!r}")
     if isinstance(reps, bool) or not isinstance(reps, int) or reps <= 0:
         raise SuggestionError(f"{path}: suggested.target_reps must be a positive integer, got {reps!r}")
+    rom = suggested.get("target_rom_deg")  # optional: older suggestions do not set a range
+    if rom is not None and (not _is_number(rom) or not SUGGESTED_ROM_MIN <= rom <= SUGGESTED_ROM_MAX):
+        raise SuggestionError(f"{path}: suggested.target_rom_deg must be a number from "
+                              f"{SUGGESTED_ROM_MIN:g} to {SUGGESTED_ROM_MAX:g}, got {rom!r}")
     settings = {
         "assist_level": float(assist),
         "target_reps": reps,
+        "target_rom_deg": None if rom is None else float(rom),
         "based_on": based_on,
         "approved_at": data.get("approved_at"),
     }
@@ -400,7 +422,18 @@ def read_approved_suggestion(suggestions_dir, patient_id, out_dir):
 
 
 def resolve_settings(args):
-    """Decide (target_reps, assist_cap, notes) for the next session.
+    """(target_reps, assist_cap, notes) for the next session; see resolve_session."""
+    plan = resolve_session(args)
+    return plan["target_reps"], plan["assist_cap"], plan["notes"]
+
+
+def resolve_session(args):
+    """Decide the next session's target reps, assist cap and range of motion.
+
+    Returns {"target_reps", "assist_cap", "target_rom", "notes"}. The range of
+    motion follows the same precedence as the rest: an explicit --target-rom,
+    then the approved suggestion's target_rom_deg if it has one, then the
+    default.
 
     Precedence for each value: explicit command-line flag, then the approved
     suggestion, then the built-in default. The suggestion's assist level is
@@ -419,16 +452,22 @@ def resolve_settings(args):
     ceiling = DEFAULT_ASSIST_MAX if args.assist_max is None else args.assist_max
     target_reps = DEFAULT_REPS if args.reps is None else args.reps
     assist_cap = ceiling
+    explicit_rom = getattr(args, "target_rom", None)
+    target_rom = DEFAULT_TARGET_ROM if explicit_rom is None else explicit_rom
+
+    def plan():
+        return {"target_reps": target_reps, "assist_cap": assist_cap, "target_rom": target_rom,
+                "notes": notes}
 
     if args.ignore_suggestion:
         notes.append("Ignoring any dashboard suggestion (--ignore-suggestion).")
-        return target_reps, assist_cap, notes
+        return plan()
 
     suggestions_dir = args.suggestions or Path(args.out).parent / "suggestions"
     approved, note = read_approved_suggestion(suggestions_dir, args.patient, args.out)
     notes.append(note)
     if approved is None:
-        return target_reps, assist_cap, notes
+        return plan()
 
     if args.reps is None:
         target_reps = approved["target_reps"]
@@ -442,26 +481,33 @@ def resolve_settings(args):
     if approved["assist_level"] > ceiling:
         notes.append(f"WARNING: approved assist level {approved['assist_level']:g}% exceeds the "
                      f"{ceiling:g}% ceiling; clamped. Raise --assist-max deliberately to allow more.")
+    if approved["target_rom_deg"] is not None:
+        if explicit_rom is None:
+            target_rom = approved["target_rom_deg"]
+        else:
+            notes.append(f"--target-rom {explicit_rom:g} overrides the approved range of "
+                         f"{approved['target_rom_deg']:g} deg.")
     notes.append(f"Applying approved suggestion: assist capped at {assist_cap:g}%, {target_reps} reps"
-                 f" (approved {approved['approved_at'] or 'at an unknown time'}).")
-    return target_reps, assist_cap, notes
+                 + (f", range {target_rom:g} deg" if approved["target_rom_deg"] is not None else "")
+                 + f" (approved {approved['approved_at'] or 'at an unknown time'}).")
+    return plan()
 
 
 def cmd_session(args):
     try:
-        target_reps, assist_cap, notes = resolve_settings(args)
+        session_plan = resolve_session(args)
     except SuggestionError as exc:
         sys.exit(f"Not starting: {exc}\n"
                  "Fix or re-approve the suggestion in the dashboard, or run with --ignore-suggestion.")
-    for note in notes:
+    for note in session_plan["notes"]:
         print(note)
     cfg = Config(
         joint_id=JOINTS[args.joint],
-        target_rom=args.target_rom,
-        target_reps=target_reps,
+        target_rom=session_plan["target_rom"],
+        target_reps=session_plan["target_reps"],
         direction=args.direction,
         resistance=args.resistance,
-        assist_max=assist_cap,
+        assist_max=session_plan["assist_cap"],
         max_minutes=args.max_minutes,
     )
     if cfg.assist_min > cfg.assist_max:
@@ -524,7 +570,8 @@ def cmd_session(args):
     if not reps:
         print("No reps completed; no session file written.")
         return
-    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps, cfg.assist_max)
+    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps,
+                         cfg.assist_max, cfg.target_rom, args.joint)
     print(f"Wrote {len(reps)}/{cfg.target_reps} reps to {path}")
 
 
@@ -561,7 +608,8 @@ def main():
     session.add_argument("--out", required=True, help="directory for the session JSON file")
     session.add_argument("--port", default=FOLLOWER_PORT)
     session.add_argument("--joint", choices=list(JOINTS), default="elbow_flex")
-    session.add_argument("--target-rom", type=float, default=60.0, help="degrees")
+    session.add_argument("--target-rom", type=float, default=None,
+                         help=f"degrees (default: the approved suggestion's range, else {DEFAULT_TARGET_ROM:g})")
     session.add_argument("--reps", type=int, default=None,
                          help=f"repetitions (default: the approved suggestion's target, else {DEFAULT_REPS})")
     session.add_argument("--direction", type=int, choices=[-1, 0, 1], default=0,

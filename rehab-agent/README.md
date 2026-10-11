@@ -36,6 +36,7 @@ and chart renders even when the model is offline.
 
 ```bash
 pip install streamlit          # brings pandas; analysis/llm use only stdlib
+pip install numpy soundfile scipy faster-whisper   # for the Training plan tab's speech-to-text
 python generate_fake.py        # (Person A) create demo sessions, if needed
 streamlit run app.py
 ```
@@ -106,20 +107,37 @@ serves an info page explaining why.
    can address the patient by name, in the chosen tone, against their own
    goals. Private therapist notes are never sent to the model.
 
-## Suggestion rules (`suggest.py`)
-All read from `analysis.patient_trend(patient_id)`:
-- **Safety first** — if the latest session had ≥2 safety stops, raise the assist
-  cap by 5 points and hold the rep target.
-- **Rebuild consistency** — if the latest session finished fewer reps than its
-  target, raise the assist cap by 5 points and hold the target.
-- **Progress** — if the share of each movement the robot did (`avg_assist_pct`)
-  fell for 3 sessions in a row, lower the assist cap by 5 points and add 2 reps.
-- **Otherwise** — hold the plan steady.
+7. **Home** — what the project is, with an animation of the arm.
+8. **Training plan** — paste, upload or dictate a doctor's report and get 3 to 5
+   exercises chosen from a public exercise library (`recommend.py`; the local
+   model only picks among real library entries). Speech-to-text (`stt.py`) runs
+   locally by default; the optional ElevenLabs backend sends audio to a cloud
+   service and needs `ELEVENLABS_API_KEY`. Advisory only: a clinician approves.
 
-`assist_level` is the arm's assist **torque cap** in percent. `current` is the
-cap the latest session ran with (`assist_cap` in the session file, exposed
-by `analysis.session_stats`); sessions recorded before the arm wrote it are
-assumed to have used the arm's 45% default. Suggested values stay within 0–100.
+`data/exercises/exercises.json` is the public-domain free-exercise-db library.
+
+## Suggestion rules (`suggest.py`)
+All read from `analysis.patient_trend(patient_id)`. They are checked in this
+order and the first that applies decides:
+
+1. **Safety** - 2 or more safety stops in the latest session: raise the assist
+   cap, hold reps and range.
+2. **Unfinished** - fewer reps completed than the target: raise the assist cap.
+3. **Range short** - under half the reps reached the session's target range:
+   raise the assist cap, or lower the range by 5 deg if assist is already at its
+   maximum.
+4. **Range ready** - every rep reached the range unaided, two sessions running:
+   raise the range by 5 deg towards the therapist's goal from the patient's
+   profile, never past it. Needs a goal to be set.
+5. **Progressing** - the robot's share of the movement fell three sessions in a
+   row: lower the assist cap and add reps.
+6. **Otherwise** - hold the plan steady.
+
+Rules 3 and 4 need the session's target range, which the arm writes into newer
+session files (`target_rom_deg`); older sessions skip them. Suggested assist
+caps stay between 15% and 45%, which is what the arm will actually apply. The
+suggestion tab has a "How this suggestion was decided" panel listing every rule,
+whether it applied, and why.
 
 A suggestion is written to `data/suggestions/<patient>_next.json`:
 

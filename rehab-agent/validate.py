@@ -108,6 +108,13 @@ def validate_file(path):
         if not _is_number(cap) or not (ASSIST_MIN <= cap <= ASSIST_MAX):
             problems.append(f"assist_cap: expected a number from {ASSIST_MIN} to {ASSIST_MAX}, got {cap!r}")
 
+    if "target_rom_deg" in session:
+        rom = session["target_rom_deg"]
+        if not _is_number(rom) or not (ROM_MIN <= rom <= ROM_MAX):
+            problems.append(f"target_rom_deg: expected a number from {ROM_MIN} to {ROM_MAX}, got {rom!r}")
+    if "joint" in session and (not isinstance(session["joint"], str) or not session["joint"]):
+        problems.append(f"joint: expected a non-empty string, got {session['joint']!r}")
+
     reps = session.get("reps")
     if not isinstance(reps, list):
         problems.append("reps: missing or not a list")
