@@ -11,8 +11,12 @@ contract.
 - `rehab_arm.py` - session controller and command line
 - `servo.py` - Feetech servo bus (and a simulated bus for testing without hardware)
 - `calibration/` - backup of the LeRobot calibration for our two arms
+- `HANDOFF.md` - where the arm work stands, how to run things on the Ryzen PC,
+  and fixes for the problems hit so far
 - `TRAINING_HANDOFF.md` - how to train the wrist-grasp model from the recorded
   demonstrations, and what to know about the data
+- `data_collection/` - scripts for recording, monitoring and reviewing camera
+  demonstrations
 - `rehab-agent/` - therapist dashboard that reads the session files (charts, summary,
   Q&A, next-session suggestion); see `rehab-agent/README.md`. Its `data/sessions/`
   holds synthetic demo patients only
