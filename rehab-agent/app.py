@@ -18,9 +18,9 @@ Division of labour (see README):
 Run with:  streamlit run app.py
 """
 
-from datetime import date
-
+import html
 import json
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -180,6 +180,11 @@ DARK_CSS = """
   .app-header-title { color: #ECEAF2 !important; }
   .app-header-sub { color: #9A9CAB !important; }
   [data-testid="stMetric"] { background: #20212A !important; border-color: #30313B !important; }
+  .pt-cell { background: #20212A !important; border-color: #30313B !important; }
+  .pt-value, .sg-name, .sg-now, .sg-rule b, .sg-rule.decided { color: #ECEAF2 !important; }
+  .pt-label, .pt-detail, .sg-head, .sg-rule { color: #A9A6B8 !important; }
+  .sg-rule { border-left-color: #30313B !important; }
+  .sg-rule.decided { border-left-color: #8FB8DE !important; }
   [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * { color: #9A9CAB !important; }
   [data-testid="stMetricValue"] { color: #ECEAF2 !important; }
   .stTabs [data-baseweb="tab-list"] { background: #17181E !important; }
@@ -233,6 +238,31 @@ st.markdown(
       }
       .app-header-title { font-size: 1.55rem; font-weight: 680; color: var(--ink); }
       .app-header-sub   { font-size: 0.95rem; color: var(--muted); margin-top: 4px; }
+
+      /* Patient summary strip: four cells that stay above the tabs */
+      .pt-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+                  margin-bottom: 16px; }
+      .pt-cell  { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+                  padding: 12px 16px; box-shadow: 0 1px 3px rgba(68, 70, 79, 0.05); min-width: 0; }
+      .pt-label { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+      .pt-value { font-size: 1.25rem; font-weight: 650; color: var(--ink); margin-top: 2px;
+                  overflow-wrap: anywhere; }
+      .pt-detail { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+      @media (max-width: 900px) { .pt-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+      /* Suggestion rows: setting, latest value, next value, change */
+      .sg-head { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+      .sg-name { font-weight: 600; color: var(--ink); padding-top: 8px; }
+      .sg-now  { font-size: 1.2rem; font-weight: 650; color: var(--ink); padding-top: 4px; }
+      .sg-chip { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 0.82rem;
+                 font-weight: 600; margin-top: 6px; }
+      .sg-up   { background: #E3F3EA; color: #24613F; }
+      .sg-down { background: #FBE9DF; color: #8A4B20; }
+      .sg-same { background: #EEEAF4; color: #6A6676; }
+      .sg-rule { border-left: 3px solid var(--border); padding: 4px 0 4px 12px; margin: 4px 0;
+                 color: var(--muted); font-size: 0.9rem; }
+      .sg-rule.decided { border-left-color: var(--blue); color: var(--ink); }
+      .sg-rule b { color: var(--ink); }
 
       /* Metric tiles as soft pastel cards */
       [data-testid="stMetric"] {
@@ -363,20 +393,75 @@ earned = analysis.milestones(patient_id, profile["target_rom_deg"])
 focus = analysis.focus_areas(
     patient_id, profile["target_rom_deg"], profile["sessions_per_week_goal"])
 
+# The suggestion is built once here: the summary strip and its own tab both use it.
+suggestion = suggest.make_suggestion(patient_id, profile["target_rom_deg"])
+saved_suggestion = suggest.load_suggestion(patient_id)
+suggestion_approved = bool(
+    suggestion["suggested"] is not None and saved_suggestion and saved_suggestion.get("approved")
+    and saved_suggestion.get("based_on_session_id") == suggestion["based_on_session_id"])
+
+display_name = profile["preferred_name"] or patient_id
+header_who = (f"{html.escape(profile['preferred_name'])} &middot; patient {html.escape(patient_id)}"
+              if profile["preferred_name"] else f"Patient {html.escape(patient_id)}")
 st.markdown(
     f"""
     <div class="app-header">
       <div class="app-header-title">Rehab Robot Dashboard</div>
-      <div class="app-header-sub">Patient {patient_id} &middot; {len(sessions)} session(s) on record</div>
+      <div class="app-header-sub">{header_who} &middot; {len(sessions)} session(s) on record</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-(tab_home, tab_sessions, tab_suggest, tab_trends, tab_personal, tab_daily, tab_insight,
- tab_train) = st.tabs(
-    ["Home", "Sessions", "Next-session suggestion", "Trends", "Personal plan", "Daily feedback",
-     "Summary & Q&A", "Training plan"]
+
+def _summary_cells():
+    """The four at-a-glance cells: (label, value, detail). Numbers come from analysis.py."""
+    latest = progress["latest"]
+    new_milestones = sum(1 for m in earned if m["new"])
+    who = ("Patient", display_name,
+           f"{len(earned)} milestone(s)" + (f", {new_milestones} new" if new_milestones else ""))
+
+    if latest is None:
+        rom = ("Range of motion", "No reps yet", "Nothing recorded to measure")
+    elif progress["progress_to_target_pct"] is None:
+        rom = ("Range of motion", f"{latest['avg_rom_deg']:g}°", "No goal set in the Personal plan")
+    else:
+        rom = ("Range of motion", f"{latest['avg_rom_deg']:g}°",
+               f"{progress['progress_to_target_pct']:g}% of the way to the "
+               f"{profile['target_rom_deg']:g}° goal")
+
+    if latest is None:
+        talk = ("Discuss first", "-", "No sessions with repetitions")
+    elif focus:
+        talk = ("Discuss first", focus[0]["area"], focus[0]["reason"])
+    else:
+        talk = ("Discuss first", "Nothing flagged", "The latest session raised no concerns")
+
+    if suggestion["suggested"] is None:
+        nxt = ("Next session", "No suggestion", "Needs at least one session")
+    elif suggestion_approved:
+        nxt = ("Next session", "Approved", f"Settings approved {saved_suggestion.get('approved_at', '')}")
+    else:
+        nxt = ("Next session", "Awaiting approval", "Review the suggestion and approve it")
+    return [who, rom, talk, nxt]
+
+
+st.markdown(
+    '<div class="pt-strip">' + "".join(
+        f'<div class="pt-cell"><div class="pt-label">{html.escape(label)}</div>'
+        f'<div class="pt-value">{html.escape(value)}</div>'
+        f'<div class="pt-detail">{html.escape(detail)}</div></div>'
+        for label, value, detail in _summary_cells()
+    ) + "</div>",
+    unsafe_allow_html=True,
+)
+
+# Ordered by use: the patient, the decision, their plan, then the detail. The
+# project description sits last.
+(tab_sessions, tab_suggest, tab_personal, tab_trends, tab_daily, tab_insight, tab_train,
+ tab_home) = st.tabs(
+    ["Sessions", "Next-session suggestion", "Personal plan", "Trends", "Daily feedback",
+     "Summary & Q&A", "Training plan", "About"]
 )
 
 
@@ -493,78 +578,58 @@ with tab_sessions:
 # --------------------------------------------------------------------------
 with tab_suggest:
     st.subheader("Suggestion for the next session")
-    st.caption(
-        "Rule-based and advisory. Nothing changes the plan until you press "
-        "Approve. You may edit the values first."
-    )
+    st.caption("Advisory. Nothing changes until you press Approve; edit any value first.")
 
-    existing = suggest.load_suggestion(patient_id)
-    if existing and existing.get("approved"):
-        approved_range = existing["suggested"].get("target_rom_deg")
-        st.success(
-            f"Approved on {existing.get('approved_at', 'unknown')} - "
-            f"assist cap {existing['suggested']['assist_level']}%, "
-            f"target {existing['suggested']['target_reps']} reps"
-            + (f", range {approved_range:g}°." if approved_range is not None else ".")
-        )
-
-    # The therapist's range goal comes from the patient's profile (Personal plan tab).
-    s = suggest.make_suggestion(patient_id, profile["target_rom_deg"])
-
+    s = suggestion
     if s["suggested"] is None:
         st.info(s["rationale"])
     else:
+        if suggestion_approved:
+            done = saved_suggestion["suggested"]
+            st.success(
+                f"Approved {saved_suggestion.get('approved_at', '')}: assist cap "
+                f"{done['assist_level']:g}%, {done['target_reps']} reps"
+                + (f", range {done['target_rom_deg']:g}°." if done.get("target_rom_deg") is not None else ".")
+            )
         st.info(s["rationale"])
         cur, sug = s["current"], s["suggested"]
         has_range = "target_rom_deg" in sug
 
-        col_now, col_next = st.columns(2)
-        with col_now:
-            st.markdown("**Current (latest session)**")
-            st.metric("Assist cap (torque)", f"{cur['assist_level']}%")
-            st.metric("Target reps", cur["target_reps"])
-            if has_range:
-                st.metric("Target range of motion", f"{cur['target_rom_deg']:g}°")
-        with col_next:
-            st.markdown("**Suggested - edit before approving**")
-            new_assist = st.number_input(
-                "Assist cap (% torque)",
-                min_value=0.0, max_value=100.0,
-                value=float(sug["assist_level"]), step=1.0,
-            )
-            new_reps = st.number_input(
-                "Target reps",
-                min_value=1, max_value=200,
-                value=int(sug["target_reps"]), step=1,
-            )
-            new_range = st.number_input(
-                "Target range of motion (degrees)",
-                min_value=suggest.RANGE_MIN, max_value=suggest.RANGE_MAX,
-                value=float(sug["target_rom_deg"]), step=1.0,
-            ) if has_range else None
+        def chip(delta, unit):
+            kind = "sg-same" if not delta else ("sg-up" if delta > 0 else "sg-down")
+            text = "no change" if not delta else f"{delta:+g}{unit}"
+            return f'<span class="sg-chip {kind}">{text}</span>'
 
-        change = (f"Change vs current: assist cap {round(new_assist - cur['assist_level'], 1):+}%, "
-                  f"reps {new_reps - cur['target_reps']:+}")
+        widths = [2.2, 1.4, 2.4, 1.4]
+        for col, text in zip(st.columns(widths), ("Setting", "Latest session", "Next session", "Change")):
+            col.markdown(f'<div class="sg-head">{text}</div>', unsafe_allow_html=True)
+
+        row = st.columns(widths)
+        row[0].markdown('<div class="sg-name">Assist cap (% torque)</div>', unsafe_allow_html=True)
+        row[1].markdown(f'<div class="sg-now">{cur["assist_level"]:g}%</div>', unsafe_allow_html=True)
+        new_assist = row[2].number_input("Assist cap (% torque)", min_value=0.0, max_value=100.0,
+                                         value=float(sug["assist_level"]), step=1.0, format="%g",
+                                         label_visibility="collapsed")
+        row[3].markdown(chip(round(new_assist - cur["assist_level"], 1), "%"), unsafe_allow_html=True)
+
+        row = st.columns(widths)
+        row[0].markdown('<div class="sg-name">Target reps</div>', unsafe_allow_html=True)
+        row[1].markdown(f'<div class="sg-now">{cur["target_reps"]}</div>', unsafe_allow_html=True)
+        new_reps = row[2].number_input("Target reps", min_value=1, max_value=200,
+                                       value=int(sug["target_reps"]), step=1,
+                                       label_visibility="collapsed")
+        row[3].markdown(chip(new_reps - cur["target_reps"], ""), unsafe_allow_html=True)
+
+        new_range = None
         if has_range:
-            change += f", range {round(new_range - cur['target_rom_deg'], 1):+}°"
-        st.caption(change)
-        st.caption(
-            f"The arm applies an assist cap between {suggest.ASSIST_CAP_MIN:g}% and "
-            f"{suggest.ASSIST_CAP_MAX:g}% unless its operator raises the ceiling, and refuses a "
-            "range past the joint's end stop."
-        )
-        if not has_range:
-            st.caption("The latest session did not record its target range, so no range is suggested.")
-        elif profile["target_rom_deg"] is None:
-            st.caption("Set a range-of-motion target in the Personal plan tab to let the range "
-                       "progress towards it.")
-
-        with st.expander("How this suggestion was decided"):
-            st.caption("Rules are checked in this order; the first that applies decides.")
-            for item in s["considered"]:
-                mark = "decided" if item["decided"] else ("applies, but an earlier rule decided"
-                                                          if item["applies"] else "does not apply")
-                st.markdown(f"- **{item['rule'].replace('_', ' ')}** ({mark}): {item['why']}")
+            row = st.columns(widths)
+            row[0].markdown('<div class="sg-name">Target range of motion</div>', unsafe_allow_html=True)
+            row[1].markdown(f'<div class="sg-now">{cur["target_rom_deg"]:g}°</div>', unsafe_allow_html=True)
+            new_range = row[2].number_input("Target range of motion (degrees)",
+                                            min_value=suggest.RANGE_MIN, max_value=suggest.RANGE_MAX,
+                                            value=float(sug["target_rom_deg"]), step=1.0, format="%g",
+                                            label_visibility="collapsed")
+            row[3].markdown(chip(round(new_range - cur["target_rom_deg"], 1), "°"), unsafe_allow_html=True)
 
         if st.button("Approve next-session settings", type="primary"):
             settings = {"assist_level": new_assist, "target_reps": new_reps}
@@ -574,12 +639,35 @@ with tab_suggest:
             # rule, rationale and session number, not those of an older saved one (the arm
             # ignores an approval based on a session that is no longer the latest).
             suggest.save_suggestion(s)
-            approved = suggest.approve(patient_id, settings)
-            st.success(
-                f"Approved and saved to data/suggestions/{patient_id}_next.json "
-                f"at {approved['approved_at']}."
-            )
+            suggest.approve(patient_id, settings)
             st.rerun()
+
+        notes = [f"The arm applies an assist cap between {suggest.ASSIST_CAP_MIN:g}% and "
+                 f"{suggest.ASSIST_CAP_MAX:g}% and refuses a range past the joint's end stop."]
+        if not has_range:
+            notes.append("The latest session did not record its target range, so no range is suggested.")
+        elif profile["target_rom_deg"] is None:
+            notes.append("Set a range goal in the Personal plan tab to let the range progress towards it.")
+        st.caption(" ".join(notes))
+
+        st.markdown("**How this was decided**")
+        st.caption("Rules are checked top to bottom; the first that applies decides.")
+        rule_names = {"safety": "Safety stops", "unfinished": "Unfinished set", "range_short": "Range short",
+                      "range_ready": "Range ready to grow", "progressing": "Progressing",
+                      "hold": "Otherwise, hold steady"}
+        for item in s["considered"]:
+            if item["decided"]:
+                state = "Decided"
+            elif item["rule"] == "hold":
+                state = "Not needed"
+            else:
+                state = "Also applies, but an earlier rule decided" if item["applies"] else "Does not apply"
+            st.markdown(
+                f'<div class="sg-rule{" decided" if item["decided"] else ""}">'
+                f'<b>{rule_names.get(item["rule"], item["rule"])}</b> &middot; {state}<br>'
+                f'{html.escape(item["why"])}</div>',
+                unsafe_allow_html=True,
+            )
 
 
 # --------------------------------------------------------------------------
@@ -617,6 +705,50 @@ with tab_personal:
         "you set. It changes no robot setting; those come only from the Next-session "
         "suggestion tab."
     )
+
+    has_profile = patient_profile.exists(patient_id)
+    with st.expander("Edit profile" if has_profile else "Set up this patient's profile",
+                     expanded=not has_profile):
+        if not has_profile:
+            st.caption("No profile saved yet. Goals set here drive the progress bar, the "
+                       "discussion list and the range suggestion.")
+        with st.form(f"profile_{patient_id}"):
+            left, right = st.columns(2)
+            with left:
+                new_name = st.text_input("Preferred name", value=profile["preferred_name"], max_chars=60)
+                new_tone = st.selectbox("Tone for written feedback", patient_profile.TONES,
+                                        index=patient_profile.TONES.index(profile["tone"]))
+                new_motivation = st.text_area(
+                    "What they are working towards, in their words",
+                    value=profile["motivation"], max_chars=300,
+                    placeholder="e.g. reaching the top shelf again")
+                new_reward = st.text_area(
+                    "How they want to mark reaching their target",
+                    value=profile["reward"], max_chars=300,
+                    placeholder="e.g. a walk to the cafe with my daughter")
+            with right:
+                new_target = st.number_input("Range-of-motion target (degrees)", min_value=1.0,
+                                             max_value=180.0, value=profile["target_rom_deg"], step=1.0)
+                new_reps = st.number_input("Daily repetition goal", min_value=1, max_value=500,
+                                           value=profile["daily_rep_goal"], step=1)
+                new_week = st.number_input("Sessions per week goal", min_value=1, max_value=14,
+                                           value=profile["sessions_per_week_goal"], step=1)
+                new_notes = st.text_area("Private notes (never sent to the model)",
+                                         value=profile["notes"], max_chars=1000)
+            st.caption("Leave a goal empty if none has been set. Goals describe activity and range; "
+                       "they are yours to set and are not suggested by the system.")
+            if st.form_submit_button("Save profile", type="primary"):
+                try:
+                    patient_profile.save(patient_id, {
+                        "preferred_name": new_name, "tone": new_tone, "motivation": new_motivation,
+                        "reward": new_reward, "target_rom_deg": new_target, "daily_rep_goal": new_reps,
+                        "sessions_per_week_goal": new_week, "notes": new_notes,
+                    })
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.rerun()
+
 
     st.markdown("**What to discuss first**")
     if not focus:
@@ -669,46 +801,6 @@ with tab_personal:
         st.info(f"Target reached. {name}'s chosen way to mark it: {profile['reward']}")
     st.caption("Milestones mark recorded activity. They are not a clinical judgment.")
 
-    st.divider()
-    st.markdown("**Profile**")
-    with st.form(f"profile_{patient_id}"):
-        left, right = st.columns(2)
-        with left:
-            new_name = st.text_input("Preferred name", value=profile["preferred_name"], max_chars=60)
-            new_tone = st.selectbox("Tone for written feedback", patient_profile.TONES,
-                                    index=patient_profile.TONES.index(profile["tone"]))
-            new_motivation = st.text_area(
-                "What they are working towards, in their words",
-                value=profile["motivation"], max_chars=300,
-                placeholder="e.g. reaching the top shelf again")
-            new_reward = st.text_area(
-                "How they want to mark reaching their target",
-                value=profile["reward"], max_chars=300,
-                placeholder="e.g. a walk to the cafe with my daughter")
-        with right:
-            new_target = st.number_input("Range-of-motion target (degrees)", min_value=1.0,
-                                         max_value=180.0, value=profile["target_rom_deg"], step=1.0)
-            new_reps = st.number_input("Daily repetition goal", min_value=1, max_value=500,
-                                       value=profile["daily_rep_goal"], step=1)
-            new_week = st.number_input("Sessions per week goal", min_value=1, max_value=14,
-                                       value=profile["sessions_per_week_goal"], step=1)
-            new_notes = st.text_area("Private notes (never sent to the model)",
-                                     value=profile["notes"], max_chars=1000)
-        st.caption("Leave a goal empty if none has been set. Goals describe activity and range; "
-                   "they are yours to set and are not suggested by the system.")
-        if st.form_submit_button("Save profile", type="primary"):
-            try:
-                patient_profile.save(patient_id, {
-                    "preferred_name": new_name, "tone": new_tone, "motivation": new_motivation,
-                    "reward": new_reward, "target_rom_deg": new_target, "daily_rep_goal": new_reps,
-                    "sessions_per_week_goal": new_week, "notes": new_notes,
-                })
-            except ValueError as exc:
-                st.error(str(exc))
-            else:
-                st.rerun()
-    if not patient_profile.exists(patient_id):
-        st.caption("No profile saved yet for this patient; showing defaults.")
 
 
 # --------------------------------------------------------------------------
