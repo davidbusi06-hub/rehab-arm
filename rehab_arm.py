@@ -13,6 +13,10 @@ How the contract fields are measured:
     peak_resistance  peak motor load in the rep, percent of max torque
     safety_stop      a safety stop fired during the rep
 
+One field is added on top of the contract, per session rather than per rep:
+    assist_cap       the assist torque cap the session ran with, percent of
+                     max torque; this is what a suggestion's assist_level sets
+
 Usage:
     python rehab_arm.py monitor
     python rehab_arm.py session --patient p03 --out DIR
@@ -31,6 +35,14 @@ from servo import DEG_PER_TICK, JOINTS, TICKS_PER_REV, FeetechBus, SimBus
 
 READY, OUTBOUND, RETURN = "ready", "outbound", "return"
 MAX_MISSED_READS = 5
+DEFAULT_REPS = 10
+# Percent torque the assist may reach. Also the ceiling for an approved
+# suggestion's assist level: the dashboard can ask for less, never for more
+# than the operator allowed on the command line.
+DEFAULT_ASSIST_MAX = 45.0
+# Percent torque the assist starts at, and the floor for an approved
+# suggestion's assist level: below this the arm is too weak to help at all.
+DEFAULT_ASSIST_MIN = 15.0
 # The follower's USB adapter by serial number, so it survives re-plugging
 # (the /dev/ttyACM* numbers depend on plug-in order).
 FOLLOWER_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C125047-if00"
@@ -43,8 +55,8 @@ class Config:
     target_reps: int
     direction: int = 0            # +1/-1 in encoder ticks; 0 = learn from first movement
     resistance: float = 0.0       # % torque pulling back to start on the way out; 0 = free
-    assist_min: float = 15.0      # % torque when assist first engages
-    assist_max: float = 45.0      # % torque assist may ramp up to
+    assist_min: float = DEFAULT_ASSIST_MIN  # % torque when assist first engages
+    assist_max: float = DEFAULT_ASSIST_MAX  # % torque assist may ramp up to; 0 = never assist
     assist_step: float = 5.0
     ramp_interval: float = 0.4    # s between ramp steps while still stalled
     assist_speed: float = 20.0    # deg/s the arm travels when assisting
@@ -215,6 +227,11 @@ def run_session(bus, cfg, log=print):
                 elif speed < cfg.stall_speed:
                     if stall_since is None:
                         stall_since = now
+                    elif now - stall_since >= cfg.stall_time and cfg.assist_min <= 0:
+                        # nothing to engage; end the rep instead of re-arming every tick
+                        log(f"  Stalled at {exc:.0f} deg; assist is off, return to the start.")
+                        free()
+                        state = RETURN
                     elif now - stall_since >= cfg.stall_time:
                         assist_level = cfg.assist_min
                         rep.assist_from = exc
@@ -263,7 +280,7 @@ def next_session_id(out_dir):
     return highest + 1
 
 
-def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps):
+def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps, assist_cap):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"session_{session_id:03d}.json"
@@ -274,20 +291,152 @@ def write_session(out_dir, session_id, patient_id, started_at, target_reps, reps
         "patient_id": patient_id,
         "started_at": started_at,
         "target_reps": target_reps,
+        "assist_cap": round(assist_cap, 1),
         "reps": reps,
     }
     path.write_text(json.dumps(session, indent=2) + "\n")
     return path
 
 
+class SuggestionError(ValueError):
+    """An approved suggestion file exists but cannot be trusted."""
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def latest_session_id(out_dir, patient_id):
+    """Highest session_id already in out_dir for this patient, or None."""
+    latest = None
+    for path in Path(out_dir).glob("*.json"):
+        try:
+            data = json.loads(path.read_text())
+            if data.get("patient_id") != patient_id:
+                continue
+            session_id = int(data["session_id"])
+        except (ValueError, TypeError, KeyError, AttributeError):
+            continue
+        latest = session_id if latest is None else max(latest, session_id)
+    return latest
+
+
+def read_approved_suggestion(suggestions_dir, patient_id, out_dir):
+    """Read the therapist-approved next-session suggestion for a patient.
+
+    The dashboard writes <suggestions_dir>/<patient_id>_next.json and sets
+    "approved": true only when the therapist presses Approve.
+
+    Returns (settings, note). settings is {"assist_level", "target_reps",
+    "based_on", "approved_at"} when there is something to apply, or None when
+    there is not (no file, still awaiting approval, or already used because a
+    newer session exists). Raises SuggestionError for an approved file that is
+    malformed, since a person should look at it before the arm moves.
+    """
+    path = Path(suggestions_dir) / f"{patient_id}_next.json"
+    if not path.exists():
+        return None, f"No suggestion file at {path}; using command-line/default settings."
+    try:
+        data = json.loads(path.read_text())
+    except ValueError as exc:
+        raise SuggestionError(f"{path} is not valid JSON: {exc}")
+    if not isinstance(data, dict):
+        raise SuggestionError(f"{path}: expected a JSON object")
+    if data.get("approved") is not True:
+        return None, (f"Suggestion {path.name} is awaiting therapist approval; not applied. "
+                      "Using command-line/default settings.")
+    if data.get("patient_id") != patient_id:
+        raise SuggestionError(f"{path}: patient_id is {data.get('patient_id')!r}, expected {patient_id!r}")
+
+    based_on = data.get("based_on_session_id")
+    if isinstance(based_on, bool) or not isinstance(based_on, int):
+        raise SuggestionError(f"{path}: approved suggestion has no integer based_on_session_id")
+    latest = latest_session_id(out_dir, patient_id)
+    if latest is not None and latest > based_on:
+        return None, (f"Approved suggestion was based on session {based_on}, but session {latest} "
+                      "has been recorded since; it is stale and not applied. "
+                      "Using command-line/default settings.")
+
+    suggested = data.get("suggested")
+    if not isinstance(suggested, dict):
+        raise SuggestionError(f"{path}: approved suggestion has no 'suggested' settings")
+    assist, reps = suggested.get("assist_level"), suggested.get("target_reps")
+    if not _is_number(assist) or not 0 <= assist <= 100:
+        raise SuggestionError(f"{path}: suggested.assist_level must be a number from 0 to 100, got {assist!r}")
+    if isinstance(reps, bool) or not isinstance(reps, int) or reps <= 0:
+        raise SuggestionError(f"{path}: suggested.target_reps must be a positive integer, got {reps!r}")
+    settings = {
+        "assist_level": float(assist),
+        "target_reps": reps,
+        "based_on": based_on,
+        "approved_at": data.get("approved_at"),
+    }
+    return settings, f"Approved suggestion {path.name} (based on session {based_on}) found."
+
+
+def resolve_settings(args):
+    """Decide (target_reps, assist_cap, notes) for the next session.
+
+    Precedence for each value: explicit command-line flag, then the approved
+    suggestion, then the built-in default. The suggestion's assist level is
+    applied as the cap on assist torque, limited by --assist-max (default 45),
+    so an approved level above the operator's ceiling is clamped, loudly. A
+    level below DEFAULT_ASSIST_MIN is raised to it (still within the ceiling):
+    the dashboard's numbers routinely fall that low (see the caveat) and a
+    lower cap would leave the arm unable to help.
+
+    assist_level is a torque cap in percent on both sides: each session file
+    records the cap it ran with (assist_cap) and the dashboard's
+    suggestion steps the next cap from that, so the number approved here is
+    the number the arm applies (subject to the floor and ceiling above).
+    """
+    notes = []
+    ceiling = DEFAULT_ASSIST_MAX if args.assist_max is None else args.assist_max
+    target_reps = DEFAULT_REPS if args.reps is None else args.reps
+    assist_cap = ceiling
+
+    if args.ignore_suggestion:
+        notes.append("Ignoring any dashboard suggestion (--ignore-suggestion).")
+        return target_reps, assist_cap, notes
+
+    suggestions_dir = args.suggestions or Path(args.out).parent / "suggestions"
+    approved, note = read_approved_suggestion(suggestions_dir, args.patient, args.out)
+    notes.append(note)
+    if approved is None:
+        return target_reps, assist_cap, notes
+
+    if args.reps is None:
+        target_reps = approved["target_reps"]
+    else:
+        notes.append(f"--reps {args.reps} overrides the approved target of {approved['target_reps']} reps.")
+    floor = min(DEFAULT_ASSIST_MIN, ceiling)
+    assist_cap = max(floor, min(approved["assist_level"], ceiling))
+    if approved["assist_level"] < floor:
+        notes.append(f"WARNING: approved assist level {approved['assist_level']:g}% is below the "
+                     f"{floor:g}% the arm needs to help at all; raised to {floor:g}%.")
+    if approved["assist_level"] > ceiling:
+        notes.append(f"WARNING: approved assist level {approved['assist_level']:g}% exceeds the "
+                     f"{ceiling:g}% ceiling; clamped. Raise --assist-max deliberately to allow more.")
+    notes.append(f"Applying approved suggestion: assist capped at {assist_cap:g}%, {target_reps} reps"
+                 f" (approved {approved['approved_at'] or 'at an unknown time'}).")
+    return target_reps, assist_cap, notes
+
+
 def cmd_session(args):
+    try:
+        target_reps, assist_cap, notes = resolve_settings(args)
+    except SuggestionError as exc:
+        sys.exit(f"Not starting: {exc}\n"
+                 "Fix or re-approve the suggestion in the dashboard, or run with --ignore-suggestion.")
+    for note in notes:
+        print(note)
     cfg = Config(
         joint_id=JOINTS[args.joint],
         target_rom=args.target_rom,
-        target_reps=args.reps,
+        target_reps=target_reps,
         direction=args.direction,
         resistance=args.resistance,
-        assist_max=args.assist_max,
+        assist_max=assist_cap,
         max_minutes=args.max_minutes,
     )
     if cfg.assist_min > cfg.assist_max:
@@ -301,6 +450,10 @@ def cmd_session(args):
     else:
         bus = FeetechBus(args.port)
     original_limit = bus.get_torque_limit(cfg.joint_id)
+    original_profile = bus.get_motion_profile(cfg.joint_id)
+    if original_profile[1]:
+        print(f"Note: joint already has a speed cap of {original_profile[1] * DEG_PER_TICK:.0f} deg/s "
+              "left by an earlier program; it will be put back as found. Power-cycle the arm to clear it.")
     reps = []
     try:
         if not args.free_others:
@@ -322,6 +475,12 @@ def cmd_session(args):
             bus.set_torque_limit(cfg.joint_id, original_limit)
         except IOError:
             pass
+        try:
+            # speed/acceleration live in motor RAM and would otherwise stay capped
+            bus.restore_motion_profile(cfg.joint_id, original_profile)
+        except IOError:
+            print(f"WARNING: could not restore the speed profile of motor {cfg.joint_id}; "
+                  "power-cycle the arm to clear the speed cap.")
         bus.close()
         if stuck:
             print(f"WARNING: could not release motors {stuck}; they may still be powered. "
@@ -330,7 +489,7 @@ def cmd_session(args):
     if not reps:
         print("No reps completed; no session file written.")
         return
-    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps)
+    path = write_session(args.out, session_id, args.patient, started_at, cfg.target_reps, reps, cfg.assist_max)
     print(f"Wrote {len(reps)}/{cfg.target_reps} reps to {path}")
 
 
@@ -368,12 +527,19 @@ def main():
     session.add_argument("--port", default=FOLLOWER_PORT)
     session.add_argument("--joint", choices=list(JOINTS), default="elbow_flex")
     session.add_argument("--target-rom", type=float, default=60.0, help="degrees")
-    session.add_argument("--reps", type=int, default=10)
+    session.add_argument("--reps", type=int, default=None,
+                         help=f"repetitions (default: the approved suggestion's target, else {DEFAULT_REPS})")
     session.add_argument("--direction", type=int, choices=[-1, 0, 1], default=0,
                          help="encoder direction of the outbound movement; 0 learns it from the first rep")
     session.add_argument("--resistance", type=float, default=0.0,
                          help="percent torque opposing the outbound movement (0 = arm is free)")
-    session.add_argument("--assist-max", type=float, default=45.0, help="percent torque cap for assist")
+    session.add_argument("--assist-max", type=float, default=None,
+                         help=f"percent torque cap for assist (default {DEFAULT_ASSIST_MAX:g}); also the "
+                              "ceiling for an approved suggestion's assist level")
+    session.add_argument("--suggestions", help="directory holding <patient>_next.json "
+                                               "(default: 'suggestions' next to --out)")
+    session.add_argument("--ignore-suggestion", action="store_true",
+                         help="do not read the dashboard's approved suggestion")
     session.add_argument("--max-minutes", type=float, default=15.0)
     session.add_argument("--session-id", type=int, help="default: next free id in --out")
     session.add_argument("--free-others", action="store_true",

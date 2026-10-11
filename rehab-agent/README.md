@@ -25,7 +25,9 @@ and chart renders even when the model is offline.
   rules and writes a suggestion with `"approved": false`. It becomes approved
   only when the therapist presses **Approve** in the dashboard (they may edit
   the values first).
-- Session JSON in `data/sessions/` follows the brief's data contract.
+- Session JSON in `data/sessions/` follows the brief's data contract, plus an
+  optional top-level `assist_cap` (the torque cap the arm ran with), which
+  `validate.py` checks when present.
 
 ## Running it
 
@@ -58,13 +60,18 @@ and the prose tabs show an "insight engine offline" notice.
 
 ## Suggestion rules (`suggest.py`)
 All read from `analysis.patient_trend(patient_id)`:
-- **Safety first** — if the latest session had ≥2 safety stops, raise assist and
-  hold the rep target.
+- **Safety first** — if the latest session had ≥2 safety stops, raise the assist
+  cap by 5 points and hold the rep target.
 - **Rebuild consistency** — if the latest session finished fewer reps than its
-  target, add assist and hold the target.
-- **Progress** — if average assist fell for 3 sessions in a row, lower assist and
-  add reps.
+  target, raise the assist cap by 5 points and hold the target.
+- **Progress** — if the share of each movement the robot did (`avg_assist_pct`)
+  fell for 3 sessions in a row, lower the assist cap by 5 points and add 2 reps.
 - **Otherwise** — hold the plan steady.
+
+`assist_level` is the arm's assist **torque cap** in percent. `current` is the
+cap the latest session ran with (`assist_cap` in the session file, exposed
+by `analysis.session_stats`); sessions recorded before the arm wrote it are
+assumed to have used the arm's 45% default. Suggested values stay within 0–100.
 
 A suggestion is written to `data/suggestions/<patient>_next.json`:
 
@@ -73,8 +80,8 @@ A suggestion is written to `data/suggestions/<patient>_next.json`:
   "patient_id": "p01",
   "generated_at": "2026-10-10T14:00:00",
   "based_on_session_id": 7,
-  "current":   {"assist_level": 24.4, "target_reps": 30},
-  "suggested": {"assist_level": 22.4, "target_reps": 32},
+  "current":   {"assist_level": 45.0, "target_reps": 30},
+  "suggested": {"assist_level": 40.0, "target_reps": 32},
   "rationale": "Average assist fell for 3 sessions in a row ...",
   "approved": false,
   "approved_at": null

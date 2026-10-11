@@ -148,7 +148,10 @@ exists in either of our sessions. Person B defined this shape:
 }
 ```
 
-- `assist_level` is a percent seeded from the latest `avg_assist_pct`.
+- `assist_level` is the arm's assist **torque cap** in percent, seeded from the
+  cap the latest session ran with (`assist_cap`; 45% assumed for sessions
+  that predate it). Earlier it was seeded from `avg_assist_pct`, which is a
+  different quantity (share of the movement the robot did); see §8.
 - **Person A's position:** the keys above are now the agreed suggestion contract
   (the brief defines none). This shape is locked between us, so I can add
   `validate.validate_suggestion(path) -> list[str]` matching it whenever you want
@@ -164,10 +167,16 @@ The brief defines no data formats, so there is nothing to reconcile against it.
 Both the session schema (§4) and the suggestion schema (§7) are now settled
 between Person A and Person B. The only open items are with the **arm team**:
 
-- [ ] Arm team agrees to emit real session files in the §4 shape (we point them
-  at this doc; `validate.py` checks their exports).
-- [ ] Arm team confirms what unit/key their control policy expects for "assist"
+- [x] Arm team agrees to emit real session files in the §4 shape (we point them
+  at this doc; `validate.py` checks their exports). `rehab_arm.py session
+  --out data/sessions` writes them; `validate.py` passes them. They add one
+  optional top-level field, `assist_cap`.
+- [x] Arm team confirms what unit/key their control policy expects for "assist"
   so §7's `assist_level` (percent) lines up before anything consumes it.
+  **Resolved:** `assist_level` is the assist torque cap in percent. The arm
+  records the cap each session used as `assist_cap`; `suggest.py` starts
+  from it and steps by 5 points; `rehab_arm.py` applies the approved value as
+  the next session's cap (floor 15%, ceiling `--assist-max`, default 45%).
 
 ---
 

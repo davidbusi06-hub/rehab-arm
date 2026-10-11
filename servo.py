@@ -134,6 +134,26 @@ class FeetechBus:
         self._write(sid, ADDR_ACCELERATION, acceleration, 1)
         self._write(sid, ADDR_GOAL_VELOCITY, round(speed_deg_s / DEG_PER_TICK), 2)
 
+    def get_motion_profile(self, sid):
+        """(acceleration, goal velocity in ticks/s) currently held in the motor's RAM.
+
+        These registers survive until the motor loses power, so a session that
+        caps the speed must put them back or the cap outlives the program.
+        """
+        acceleration, result, _ = self._pk.read1ByteTxRx(self._ph, sid, ADDR_ACCELERATION)
+        if result != self._scs.COMM_SUCCESS:
+            raise IOError(f"could not read acceleration of motor {sid}")
+        velocity, result, _ = self._pk.read2ByteTxRx(self._ph, sid, ADDR_GOAL_VELOCITY)
+        if result != self._scs.COMM_SUCCESS:
+            raise IOError(f"could not read goal velocity of motor {sid}")
+        return acceleration, velocity
+
+    def restore_motion_profile(self, sid, profile):
+        """Write back a profile previously returned by get_motion_profile."""
+        acceleration, velocity = profile
+        self._write(sid, ADDR_ACCELERATION, acceleration, 1)
+        self._write(sid, ADDR_GOAL_VELOCITY, velocity, 2)
+
     def hold(self, sid):
         """Lock a joint where it currently is."""
         sample = self.read(sid)
@@ -168,6 +188,7 @@ class SimBus:
         self._torque = False
         self._goal = home
         self._limit = 100.0
+        self._profile = (0, 0)  # (acceleration, goal velocity ticks/s), motor power-on default
         self._phase = "rest"
         self._rest = 1.0
         self._waited = 0.0
@@ -235,7 +256,13 @@ class SimBus:
         return 0, TICKS_PER_REV - 1
 
     def set_motion_profile(self, sid, speed_deg_s, acceleration):
-        pass
+        self._profile = (acceleration, round(speed_deg_s / DEG_PER_TICK))
+
+    def get_motion_profile(self, sid):
+        return self._profile
+
+    def restore_motion_profile(self, sid, profile):
+        self._profile = profile
 
     def hold(self, sid):
         pass

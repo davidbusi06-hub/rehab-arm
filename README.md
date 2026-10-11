@@ -48,6 +48,48 @@ motion, reps, resistance, assist cap, time limit).
 Start with the exercised joint near mid-range; the session refuses to run if
 the start position is too close to the end of the encoder's range.
 
+## Closing the loop with the dashboard
+
+Point `--out` at the dashboard's `data/sessions` folder and each session shows
+up there as soon as it is written:
+
+```shell
+python rehab_arm.py session --patient p03 --out ~/rehab-agent/data/sessions
+python ~/rehab-agent/validate.py ~/rehab-agent/data/sessions/session_015.json
+```
+
+Before it moves, `session` also looks for the therapist-approved suggestion in
+`<--out>/../suggestions/<patient>_next.json` (override with `--suggestions DIR`)
+and, if there is one, runs with its `assist_level` and `target_reps`:
+
+| Situation | What the arm does |
+|---|---|
+| No suggestion file | command-line values or defaults (10 reps, assist cap 45%) |
+| `"approved": false` | same, and says it is awaiting approval |
+| Approved, but a newer session for that patient exists | treated as already used; same defaults |
+| Approved and current | `target_reps` from the file; assist capped at `assist_level` |
+| Approved but malformed (bad JSON, assist outside 0-100, reps not a positive integer, wrong patient, no `based_on_session_id`) | **refuses to start**; fix it in the dashboard or pass `--ignore-suggestion` |
+
+An explicit `--reps` wins over the suggestion. `--assist-max` (default 45) is a
+**ceiling**: an approved level above it is clamped with a warning, so the
+dashboard can ask for less assist but never for more than the operator allowed.
+An approved level below 15% is raised to 15% with a warning, because below that
+the arm is too weak to help at all (an explicit `--assist-max` under 15 still
+wins).
+`--ignore-suggestion` skips the file entirely.
+
+Each session file records the cap it actually ran with as a top-level
+`assist_cap` (percent of max torque, after the floor, ceiling and any
+suggestion were applied). It is the same quantity as a suggestion's
+`assist_level`: the dashboard's `suggest.py` starts the next suggestion from
+the latest session's `assist_cap` and moves it in steps of 5 points, so "hold
+steady" keeps the cap where it was and the number the therapist approves is
+the number the arm applies (within the floor and ceiling above). Session files
+written before this field existed do not have it; the dashboard assumes they
+used the 45% default.
+
+Tests (no hardware needed): `python -m unittest test_suggestions -v`.
+
 ## Calibration
 
 Both arms were calibrated with `lerobot-calibrate` (LeRobot 0.6.2). The

@@ -17,12 +17,16 @@ Suggestion JSON schema (written to ``data/suggestions/<patient>_next.json``)::
       "patient_id": "p01",
       "generated_at": "2026-10-10T14:00:00",
       "based_on_session_id": 13,     # latest session the rules saw
-      "current":   {"assist_level": 52.0, "target_reps": 30},
-      "suggested": {"assist_level": 50.0, "target_reps": 32},
+      "current":   {"assist_level": 45.0, "target_reps": 30},
+      "suggested": {"assist_level": 40.0, "target_reps": 32},
       "rationale": "Average assist fell for 3 sessions in a row ...",
       "approved": false,
       "approved_at": null            # set when the therapist approves
     }
+
+``assist_level`` is the arm's assist torque cap in percent (rehab_arm.py
+applies it as the cap for the next session). ``current`` is the cap the
+latest session ran with, read from its ``assist_cap`` via analysis.py.
 
 NOTE (flagged to Person B's human): this suggestion schema is inferred.
 The brief's *session* contract is confirmed against the data files, but
@@ -40,10 +44,18 @@ import analysis
 SUGGEST_DIR = Path(__file__).parent / "data" / "suggestions"
 
 # Tunable clinical thresholds. Kept here, named, so the rules read plainly.
-ASSIST_STEP = 2.0      # percentage points to lower/raise robot assist by
+ASSIST_STEP = 5.0      # percentage points to lower/raise the assist torque cap by
 REP_STEP = 2           # reps to add when the patient is ready to progress
 DECLINE_RUN = 3        # consecutive sessions of falling assist = progressing
 SAFETY_STOP_LIMIT = 2  # safety stops in the latest session that force caution
+# rehab_arm.py's default --assist-max. Sessions recorded before the arm wrote
+# its cap into the session file ran with this unless the operator changed it.
+ARM_DEFAULT_ASSIST_CAP = 45.0
+ASSIST_CAP_MIN, ASSIST_CAP_MAX = 0.0, 100.0
+
+
+def _clamp_cap(value):
+    return round(min(ASSIST_CAP_MAX, max(ASSIST_CAP_MIN, value)), 1)
 
 
 def _falling_for(trend, key, runs):
@@ -88,8 +100,9 @@ def make_suggestion(patient_id):
         }
 
     latest = trend[-1]
+    cap_known = latest["assist_cap"] is not None
     current = {
-        "assist_level": latest["avg_assist_pct"],
+        "assist_level": latest["assist_cap"] if cap_known else ARM_DEFAULT_ASSIST_CAP,
         "target_reps": latest["target_reps"],
     }
     # Start from "no change" and let the rules move the knobs.
@@ -102,34 +115,39 @@ def make_suggestion(patient_id):
 
     if safety_stops >= SAFETY_STOP_LIMIT:
         # Safety first: give more support, do not push reps.
-        assist_level = round(assist_level + ASSIST_STEP, 1)
+        assist_level = _clamp_cap(assist_level + ASSIST_STEP)
         rationale = (
             f"Session {latest['session_id']} had {safety_stops} safety stops. "
-            f"Raising robot assist by {ASSIST_STEP:.0f} points and holding reps "
+            f"Raising the assist cap by {ASSIST_STEP:.0f} points and holding reps "
             "steady until sessions run clean."
         )
     elif completed < target:
         # Did not finish the set: hold the plan, add a little support.
-        assist_level = round(assist_level + ASSIST_STEP, 1)
+        assist_level = _clamp_cap(assist_level + ASSIST_STEP)
         rationale = (
             f"Only {completed} of {target} reps were completed in session "
-            f"{latest['session_id']}. Adding {ASSIST_STEP:.0f} points of assist "
-            "and keeping the rep target the same to rebuild consistency."
+            f"{latest['session_id']}. Raising the assist cap by {ASSIST_STEP:.0f} "
+            "points and keeping the rep target the same to rebuild consistency."
         )
     elif _falling_for(trend, "avg_assist_pct", DECLINE_RUN):
         # Patient leaning on the robot less for several sessions: progress.
-        assist_level = round(assist_level - ASSIST_STEP, 1)
+        assist_level = _clamp_cap(assist_level - ASSIST_STEP)
         target_reps = target + REP_STEP
         rationale = (
-            f"Average assist fell for {DECLINE_RUN} sessions in a row "
-            f"(now {latest['avg_assist_pct']}%). Lowering assist by "
-            f"{ASSIST_STEP:.0f} points and adding {REP_STEP} reps to keep "
-            "advancing."
+            f"The share of each movement the robot did fell for {DECLINE_RUN} "
+            f"sessions in a row (now {latest['avg_assist_pct']}%). Lowering the "
+            f"assist cap by {ASSIST_STEP:.0f} points and adding {REP_STEP} reps "
+            "to keep advancing."
         )
     else:
         rationale = (
             f"Metrics are stable through session {latest['session_id']}. "
             "Holding assist and rep target unchanged for another session."
+        )
+    if not cap_known:
+        rationale += (
+            f" Session {latest['session_id']} did not record its assist cap; "
+            f"assumed the arm's default of {ARM_DEFAULT_ASSIST_CAP:.0f}%."
         )
 
     return {
