@@ -239,7 +239,7 @@ DARK_CSS = """
 st.set_page_config(
     page_title="Rehab Robot Dashboard",
     layout="wide",
-    initial_sidebar_state="expanded",  # foldable: use the « control to collapse
+    initial_sidebar_state="auto",  # open on wide screens, closed on phones; « / » toggles it
 )
 
 # --------------------------------------------------------------------------
@@ -297,6 +297,24 @@ st.markdown(
       .sb-item  { font-size: 0.86rem; color: var(--ink); padding: 3px 0; }
       .sb-new   { background: #E3F3EA; color: #24613F; border-radius: 999px; font-size: 0.7rem;
                   font-weight: 700; padding: 1px 7px; margin-left: 6px; }
+
+      /* Tablet widths: four metric tiles in a row get too narrow to show their values, so
+         let them wrap two by two. (Below 640px Streamlit stacks columns itself.) */
+      @media (min-width: 641px) and (max-width: 1100px) {
+        [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) { flex-wrap: wrap; }
+        [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) > [data-testid="stColumn"] {
+          flex: 1 1 calc(50% - 1rem) !important; min-width: calc(50% - 1rem) !important;
+        }
+      }
+      /* Phones: the suggestion rows stack, so the column headings no longer line up with
+         anything. Hide them and label each value in place instead. */
+      .sg-m { display: none; }
+      @media (max-width: 640px) {
+        .sg-head { display: none; }
+        .sg-m { display: inline; font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+        .sg-name { padding-top: 14px; font-size: 1.05rem; }
+        .sg-chip { margin-top: 0; }
+      }
 
       /* Suggestion rows: setting, latest value, next value, change */
       .sg-head { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
@@ -693,7 +711,7 @@ with tab_suggest:
         def chip(delta, unit):
             kind = "sg-same" if not delta else ("sg-up" if delta > 0 else "sg-down")
             text = "no change" if not delta else f"{delta:+g}{unit}"
-            return f'<span class="sg-chip {kind}">{text}</span>'
+            return f'<span class="sg-m">Change: </span><span class="sg-chip {kind}">{text}</span>'
 
         widths = [2.2, 1.4, 2.4, 1.4]
         for col, text in zip(st.columns(widths), ("Setting", "Latest session", "Next session", "Change")):
@@ -701,7 +719,7 @@ with tab_suggest:
 
         row = st.columns(widths)
         row[0].markdown('<div class="sg-name">Assist cap (% torque)</div>', unsafe_allow_html=True)
-        row[1].markdown(f'<div class="sg-now">{cur["assist_level"]:g}%</div>', unsafe_allow_html=True)
+        row[1].markdown(f'<div class="sg-now"><span class="sg-m">Latest session: </span>{cur["assist_level"]:g}%</div>', unsafe_allow_html=True)
         new_assist = row[2].number_input("Assist cap (% torque)", min_value=0.0, max_value=100.0,
                                          value=float(sug["assist_level"]), step=1.0, format="%g",
                                          label_visibility="collapsed")
@@ -709,7 +727,7 @@ with tab_suggest:
 
         row = st.columns(widths)
         row[0].markdown('<div class="sg-name">Target reps</div>', unsafe_allow_html=True)
-        row[1].markdown(f'<div class="sg-now">{cur["target_reps"]}</div>', unsafe_allow_html=True)
+        row[1].markdown(f'<div class="sg-now"><span class="sg-m">Latest session: </span>{cur["target_reps"]}</div>', unsafe_allow_html=True)
         new_reps = row[2].number_input("Target reps", min_value=1, max_value=200,
                                        value=int(sug["target_reps"]), step=1,
                                        label_visibility="collapsed")
@@ -719,7 +737,7 @@ with tab_suggest:
         if has_range:
             row = st.columns(widths)
             row[0].markdown('<div class="sg-name">Target range of motion</div>', unsafe_allow_html=True)
-            row[1].markdown(f'<div class="sg-now">{cur["target_rom_deg"]:g}°</div>', unsafe_allow_html=True)
+            row[1].markdown(f'<div class="sg-now"><span class="sg-m">Latest session: </span>{cur["target_rom_deg"]:g}°</div>', unsafe_allow_html=True)
             new_range = row[2].number_input("Target range of motion (degrees)",
                                             min_value=suggest.RANGE_MIN, max_value=suggest.RANGE_MAX,
                                             value=float(sug["target_rom_deg"]), step=1.0, format="%g",
