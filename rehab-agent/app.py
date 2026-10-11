@@ -21,6 +21,7 @@ Run with:  streamlit run app.py
 import html
 import json
 import os
+import re
 from datetime import date, datetime
 
 import altair as alt
@@ -32,6 +33,7 @@ import analysis
 import feedback
 import llm
 import patient_profile
+import prescription
 import qa
 import recommend
 import stt
@@ -422,7 +424,29 @@ if not patients:
     st.warning("No session data available. Generate sessions first.")
     st.stop()
 
-patient_id = st.sidebar.selectbox("Patient", patients)
+def _patient_name(pid):
+    """What to call a patient on screen: their preferred name, or "Patient 2" for id p02.
+
+    Record ids such as p01 are how files are stored, not how a therapist thinks of a
+    person, so they stay out of the picker and the headings.
+    """
+    name = patient_profile.load(pid)["preferred_name"]
+    if name:
+        return name
+    number = re.fullmatch(r"\D*?0*(\d+)", pid)
+    return f"Patient {number.group(1)}" if number else pid
+
+
+_names = {pid: _patient_name(pid) for pid in patients}
+
+
+def _picker_label(pid):
+    # Two patients can share a name; only then is the id needed to tell them apart.
+    shared = sum(1 for other in _names.values() if other == _names[pid]) > 1
+    return f"{_names[pid]} ({pid})" if shared else _names[pid]
+
+
+patient_id = st.sidebar.selectbox("Patient", patients, format_func=_picker_label)
 if not hasattr(analysis, "list_patients"):
     st.sidebar.caption("Using local patient-list stand-in "
                        "(awaiting analysis.list_patients).")
@@ -459,6 +483,9 @@ earned = analysis.milestones(patient_id, profile["target_rom_deg"])
 focus = analysis.focus_areas(
     patient_id, profile["target_rom_deg"], profile["sessions_per_week_goal"])
 
+# The doctor's prescription or therapy plan on file for this patient, if any.
+rx = prescription.load(patient_id)
+
 # The suggestion is built once here: the summary strip and its own tab both use it.
 suggestion = suggest.make_suggestion(patient_id, profile["target_rom_deg"])
 saved_suggestion = suggest.load_suggestion(patient_id)
@@ -466,9 +493,8 @@ suggestion_approved = bool(
     suggestion["suggested"] is not None and saved_suggestion and saved_suggestion.get("approved")
     and saved_suggestion.get("based_on_session_id") == suggestion["based_on_session_id"])
 
-display_name = profile["preferred_name"] or patient_id
-header_who = (f"{html.escape(profile['preferred_name'])} &middot; patient {html.escape(patient_id)}"
-              if profile["preferred_name"] else f"Patient {html.escape(patient_id)}")
+display_name = _names[patient_id]
+header_who = html.escape(display_name)
 st.markdown(
     f"""
     <div class="app-header">
@@ -536,7 +562,7 @@ def _goal(value, unit=""):
 
 with st.sidebar:
     card = [f'<div class="sb-card"><div class="sb-name">{html.escape(display_name)}</div>'
-            f'<div class="sb-sub">Patient {html.escape(patient_id)}</div>']
+            f'<div class="sb-sub">Record {html.escape(patient_id)}</div>']
     if profile["motivation"]:
         card.append(f'<div class="sb-quote">Working towards: {html.escape(profile["motivation"])}</div>')
     card.append("</div>")
@@ -546,6 +572,10 @@ with st.sidebar:
         ("Reps per day", _goal(profile["daily_rep_goal"])),
         ("Sessions per week", _goal(profile["sessions_per_week_goal"])),
     ]) + "</div>")
+
+    card.append('<div class="sb-card"><div class="sb-title">Prescription</div>' + _sidebar_rows(
+        [("On file", rx["filename"]), ("Uploaded", rx["uploaded_at"][:10])] if rx
+        else [("On file", "none")]) + "</div>")
 
     history = [("Sessions recorded", str(len(sessions)))]
     if trend:
@@ -879,6 +909,40 @@ with tab_personal:
                     st.rerun()
 
 
+    st.markdown("**Doctor's prescription or therapy plan**")
+    if rx:
+        st.success(f"On file: {rx['filename']}, uploaded {rx['uploaded_at'].replace('T', ' ')}.")
+        if rx["text"]:
+            with st.expander("Read the prescription"):
+                st.text(rx["text"])
+        else:
+            st.warning("This file is stored, but its text could not be read here (for a PDF, install "
+                       "`pypdf`). The exercise recommender cannot use it until it can be read; "
+                       "upload a .txt or .md version, or paste the text into the Training plan tab.")
+    with st.form(f"rx_{patient_id}", clear_on_submit=True):
+        rx_file = st.file_uploader(
+            "Replace the prescription" if rx else f"Upload {name}'s prescription or therapy plan",
+            type=[suffix.lstrip(".") for suffix in prescription.ALLOWED_SUFFIXES],
+        )
+        st.caption("Stored on this machine only and kept out of git. Its text is used to prefill the "
+                   "Training plan tab's exercise recommender, which runs on the local model.")
+        save_rx, remove_rx = st.columns([1, 1])
+        do_save = save_rx.form_submit_button("Save prescription", type="primary")
+        do_remove = remove_rx.form_submit_button("Remove the prescription on file", disabled=rx is None)
+    if do_save:
+        if rx_file is None:
+            st.error("Choose a file first.")
+        else:
+            try:
+                prescription.save(patient_id, rx_file.name, rx_file.getvalue())
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+    if do_remove:
+        prescription.delete(patient_id)
+        st.rerun()
+
     st.markdown("**What to discuss first**")
     if not focus:
         st.success("Nothing flagged in the latest session.")
@@ -1067,11 +1131,18 @@ with tab_train:
         except Exception:
             file_text = ""
 
+    saved_text = rx["text"] if rx else ""
+    if saved_text and not (spoken or file_text):
+        st.caption(f"Prefilled from {display_name}'s prescription on file ({rx['filename']}, "
+                   "Personal plan tab). Edit it freely; the saved file is not changed.")
     report = st.text_area(
         "Report / symptoms",
-        value=spoken or file_text,
+        value=spoken or file_text or saved_text,
         height=170,
         placeholder="e.g. my shoulder has been hurting — or paste a doctor report.",
+        # keyed by patient and by what is on file, so switching patient or replacing the
+        # prescription re-seeds the box instead of keeping the previous patient's text
+        key=f"report_{patient_id}_{rx['uploaded_at'] if rx else 'none'}",
     )
 
     if st.button("Recommend exercises", type="primary") and report.strip():
