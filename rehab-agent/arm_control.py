@@ -30,12 +30,14 @@ PIDFILE = Path("/home/aup/.arm_guided.pid")
 # A request's body region -> the ordered exercises sequence.py should run.
 # sequence.py always grasps the wrist first, then runs these, then returns to rest.
 PLANS = {
-    # Order found on the arm on 2026-10-11: the slide_left model stalls if it starts
-    # from where the lift leaves the arm, so it runs first, straight after the grasp.
+    # Order found on the arm on 2026-10-11. slide_left stalls if it starts from where the
+    # lift leaves the arm, so it runs first, straight after the grasp. The lift only lowers
+    # the arm if it starts from where slide_right ends (arm out to the side), so it runs
+    # before slide_right, which copes with any starting pose.
     "full": {
         "label": "Full sequence",
-        "exercises": ["slide_left", "slide_right", "lift"],
-        "describe": "grasp the wrist, slide the forearm side to side, then lift it up and down",
+        "exercises": ["slide_left", "lift", "slide_right"],
+        "describe": "grasp the wrist, slide the forearm one way, lift it up and down, then slide it the other way",
     },
     "shoulder": {
         "label": "Shoulder exercises",

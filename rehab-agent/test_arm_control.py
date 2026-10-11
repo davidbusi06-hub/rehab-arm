@@ -10,7 +10,7 @@ class DetectPlan(unittest.TestCase):
                      "run everything", "do all the exercises please"):
             plan = arm_control.detect_plan(text)
             self.assertEqual(plan["region"], "full", text)
-            self.assertEqual(plan["exercises"], ["slide_left", "slide_right", "lift"])
+            self.assertEqual(plan["exercises"], ["slide_left", "lift", "slide_right"])
 
     def test_single_exercise_requests_are_unchanged(self):
         self.assertEqual(arm_control.detect_plan("my shoulder hurts, begin")["exercises"], ["lift"])
