@@ -14,6 +14,7 @@ Prereq: Ollama must be installed and running, and the model pulled:
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
@@ -56,9 +57,17 @@ def ask(system, user):
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
             body = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise RuntimeError(
             f"Could not reach Ollama at {HOST}. Is it running, and is "
             f"'{MODEL}' pulled? (ollama serve; ollama pull {MODEL})"
         ) from exc
-    return body["message"]["content"].strip()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise RuntimeError("Ollama returned an unreadable response. Try generating again.") from exc
+    try:
+        content = body["message"]["content"].strip()
+        if not content:
+            raise ValueError("empty response")
+        return content
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise RuntimeError("Ollama returned no usable feedback. Try generating again.") from exc
