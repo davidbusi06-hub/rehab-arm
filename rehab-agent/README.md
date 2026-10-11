@@ -67,6 +67,12 @@ The user running it must be in the `video` group. With no cameras it still
 serves an info page explaining why.
 
 ## What the dashboard shows
+A strip under the header stays visible on every tab: who the patient is, their
+latest range of motion against their goal, the first thing to discuss, and
+whether the next session's settings are approved. The tabs, in order of use:
+Sessions, Next-session suggestion, Personal plan, Trends, Daily feedback,
+Summary & Q&A, Training plan, About. (The numbering below predates that order.)
+
 1. **Sessions** — pick a session, see its report (range of motion, assist,
    peak resistance, reps completed vs target, safety stops) plus a table of all
    sessions.
