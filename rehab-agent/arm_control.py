@@ -423,3 +423,59 @@ def current_step():
                 m.group(3), EXERCISE_LABELS.get(m.group(3), m.group(3)))
             return f"Step {m.group(1)} of {m.group(2)}: {name}"
     return "Loading the models"
+
+
+def report_time(summary):
+    """The run's start time as 'YYYY-MM-DD HH:MM:SS' (from its log filename), or ''."""
+    from datetime import datetime as _dt
+    tl = (summary or {}).get("tick_log")
+    if not tl:
+        return ""
+    stem = os.path.basename(tl).split("_", 1)[0]
+    try:
+        return _dt.strptime(stem, "%Y%m%d-%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+
+
+def report_text(summary):
+    """A downloadable markdown report of one run, built only from its logs.
+
+    Nothing here is invented: grasp result, range of motion and outcome all come
+    from last_run(). Assist % and resistance have no sensor, so they are not shown.
+    """
+    if not summary:
+        return "No session has been run yet."
+    from datetime import datetime as _dt
+    when = report_time(summary)
+    out = ["# Rehab session report", ""]
+    out.append(f"**Session time:** {when}" if when else f"**Generated:** {_dt.now():%Y-%m-%d %H:%M:%S}")
+    out.append(f"**Mode:** {'Dry run (simulated arm — nothing moved)' if summary.get('dry') else 'Live arm'}")
+    if summary.get("exercises"):
+        out.append(f"**Exercises requested:** {', '.join(summary['exercises'])}")
+    out += ["", "## Grasp"]
+    if summary.get("grasp"):
+        tries = summary.get("missed", 0) + 1
+        out.append(f"- Wrist grasp held after {summary.get('grasp_seconds') or 0:.0f} s "
+                   + (f"(attempt {tries})." if tries > 1 else "(first attempt)."))
+    elif summary.get("grasp") is None:
+        out.append("- The run ended before the grasp.")
+    else:
+        miss = summary.get("missed", 0)
+        out.append("- No grasp — the exercises were skipped"
+                   + (f" ({miss} closes on nothing)." if miss else "."))
+    mv = summary.get("movement") or []
+    if mv:
+        out += ["", "## Exercises", "", "| Exercise | Result | Range of motion |", "|---|---|---|"]
+        for m in mv:
+            res = "Moved" if m["moved"] else "Barely moved"
+            out.append(f"| {m['label']} | {res} | {m['travel_deg']:.0f}° at the "
+                       f"{m['joint'].replace('_', ' ')} |")
+    out += ["", "## Outcome"]
+    ended = {"at rest": "The arm let go and returned to its rest pose.",
+             "grip lost": "The grip was lost part-way, so the remaining exercises were skipped.",
+             "stopped": "The run was stopped by the operator; the arm held its position."}
+    out.append("- " + ended.get(summary.get("ended"), "Run complete."))
+    out += ["", "_Range of motion is measured from the arm's own joint-position log. Assist % and "
+            "resistance are not sensed by this hardware, so they are not reported._"]
+    return "\n".join(out)
