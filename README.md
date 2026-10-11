@@ -15,8 +15,9 @@ contract.
   and fixes for the problems hit so far
 - `TRAINING_HANDOFF.md` - how to train the wrist-grasp model from the recorded
   demonstrations, and what to know about the data
-- `data_collection/` - scripts for recording, monitoring and reviewing camera
-  demonstrations
+- `data_collection/` - scripts for recording camera demonstrations: the recorder,
+  a browser monitor with an End episode button, a camera alignment page, a
+  dataset review, and the gripper overload fix
 - `rehab-agent/` - therapist dashboard that reads the session files (charts, summary,
   Q&A, next-session suggestion); see `rehab-agent/README.md`. Its `data/sessions/`
   holds synthetic demo patients only
