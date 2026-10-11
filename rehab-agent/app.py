@@ -30,6 +30,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import analysis
+import arm_control
 import feedback
 import llm
 import patient_profile
@@ -602,9 +603,9 @@ with st.sidebar:
 # Ordered by use: the patient, the decision, their plan, then the detail. The
 # project description sits last.
 (tab_sessions, tab_suggest, tab_personal, tab_trends, tab_daily, tab_insight, tab_train,
- tab_home) = st.tabs(
+ tab_guided, tab_home) = st.tabs(
     ["Sessions", "Next-session suggestion", "Personal plan", "Trends", "Daily feedback",
-     "Summary & Q&A", "Training plan", "About"]
+     "Summary & Q&A", "Training plan", "Guided session", "About"]
 )
 
 
@@ -1167,3 +1168,123 @@ with tab_train:
                         )
                         for i, step in enumerate(ex.get("instructions") or [], 1):
                             st.write(f"{i}. {step}")
+
+
+# --------------------------------------------------------------------------
+# (8) Guided session: speak a request -> run the trained arm models
+# --------------------------------------------------------------------------
+with tab_guided:
+    st.subheader("Guided session — voice-controlled arm")
+    st.caption(
+        "Say what hurts and ask to begin (e.g. “my shoulder hurts, please begin "
+        "the shoulder exercises”, or “start the full sequence” for every exercise). The request is transcribed, matched to a "
+        "trained exercise plan, and — once you confirm — the arm grasps the wrist "
+        "and runs the exercise using the ACT models."
+    )
+    st.warning(
+        "This moves the physical arm, which holds the patient's forearm. Stay "
+        "within reach of Stop, keep the arm supported, and make sure the workspace "
+        "is clear before you press Start. Nothing moves until you press Start.",
+        icon=":material/warning:",
+    )
+
+    # --- current arm status -------------------------------------------------
+    running = arm_control.is_running()
+    busy_reason = None if running else arm_control.arm_busy()
+    if running:
+        st.info("A guided run is in progress.", icon=":material/precision_manufacturing:")
+    elif busy_reason:
+        st.error(busy_reason, icon=":material/block:")
+
+    # --- the request: voice or typed ---------------------------------------
+    g_choice = st.radio(
+        "Transcription",
+        ["ElevenLabs (cloud)", "Local (private)"],
+        horizontal=True, index=0, key="g_stt_choice",
+        help="ElevenLabs is more accurate (uploads audio to the cloud). "
+             "Local runs on this machine and the audio never leaves it.",
+    )
+    g_backend = "elevenlabs" if g_choice.startswith("ElevenLabs") else "local"
+
+    g_audio = st.audio_input("Say your request", key="g_audio")
+    g_spoken = ""
+    if g_audio is not None:
+        g_bytes = g_audio.getvalue()
+        g_k = (g_backend, hash(g_bytes))
+        if st.session_state.get("_g_stt_key") != g_k:
+            lbl = "Uploading to ElevenLabs…" if g_backend == "elevenlabs" else "Transcribing on your device…"
+            with st.spinner(lbl):
+                try:
+                    st.session_state["_g_stt_text"] = stt.transcribe(g_bytes, backend=g_backend)
+                except Exception as exc:
+                    st.session_state["_g_stt_text"] = ""
+                    st.warning("Could not transcribe the audio.")
+                    st.caption(str(exc))
+            st.session_state["_g_stt_key"] = g_k
+        g_spoken = st.session_state.get("_g_stt_text", "")
+        if g_spoken:
+            st.caption(f"Heard: “{g_spoken}”")
+
+    # Seed the editable box with a fresh transcript (once per new recording), so the
+    # heard text persists and drives the plan even after the audio widget clears.
+    if g_spoken and st.session_state.get("_g_seeded_key") != st.session_state.get("_g_stt_key"):
+        st.session_state["g_request"] = g_spoken
+        st.session_state["_g_seeded_key"] = st.session_state.get("_g_stt_key")
+
+    g_typed = st.text_input(
+        "…or type the request",
+        placeholder="e.g. my shoulder hurts, please begin the shoulder exercises",
+        key="g_request",
+    )
+    g_request = g_typed.strip()
+
+    # --- deterministic plan from keywords ----------------------------------
+    plan = arm_control.detect_plan(g_request)
+    if g_request and plan is None:
+        st.caption(
+            "No arm exercise matched that request. Mention a region the arm is "
+            "trained for: **shoulder**, **forearm**, **side-to-side**, or ask for the "
+            "**full sequence**."
+        )
+
+    if plan is not None:
+        st.markdown(f"**Detected plan:** {plan['label']} — {plan['describe']}.")
+        if not plan["wants_start"]:
+            st.caption("Tip: say “begin” or “start” to make the intent explicit "
+                       "(you can still start it with the button below).")
+
+        dry = st.checkbox(
+            "Dry run (simulate — load the models and run the sequence without moving the arm)",
+            value=False, key="g_dry",
+            help="Good for a safe demo check: it loads the ACT models and runs the "
+                 "full sequence against a simulated arm/cameras.",
+        )
+
+        c1, c2 = st.columns(2)
+        start_disabled = running or (busy_reason is not None)
+        if c1.button("▶ Start on arm", type="primary", disabled=start_disabled,
+                     key="g_start", use_container_width=True):
+            ok, info = arm_control.start(plan["exercises"], dry=dry)
+            if ok:
+                st.success(f"Started {plan['label']}"
+                           + (" (dry run)" if dry else "") + f". The arm will grasp "
+                           "the wrist first, then run the exercise, then return to rest.")
+                st.rerun()
+            else:
+                st.error(str(info))
+
+        if c2.button("⏹ Stop", disabled=not running, key="g_stop",
+                     use_container_width=True):
+            if arm_control.stop():
+                st.warning("Stopping — the arm freezes where it is with the motors on and the "
+                           "grip closed. To let go and return to rest, run: "
+                           "bash ~/models/act_20261011/run_model.sh rest")
+            st.rerun()
+
+    # --- live log -----------------------------------------------------------
+    log_text = arm_control.tail(25)
+    if log_text:
+        with st.expander("Arm run log", expanded=running):
+            st.code(log_text, language="text")
+    if running and st.button("Refresh status", key="g_refresh"):
+        st.rerun()
