@@ -1405,8 +1405,5 @@ with tab_guided:
                             st.session_state["_g_tts_down"] = why      # don't retry every reply
                     if why:
                         # Fall back to the browser's own voice, so the assistant still talks.
-                        components.html(
-                            "<script>try{const s=(window.parent||window).speechSynthesis;"
-                            f"const u=new SpeechSynthesisUtterance({json.dumps(g_reply)});"
-                            "s.cancel();s.speak(u);}catch(e){}</script>", height=0)
-                        st.caption(f"Spoken with this browser's built-in voice. {why}")
+                        components.html(tts.browser_speech_js(g_reply), height=0)
+                        st.caption(f"Spoken with this browser's built-in British voice. {why}")
