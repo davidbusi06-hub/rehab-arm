@@ -35,7 +35,7 @@ and chart renders even when the model is offline.
 ## Running it
 
 ```bash
-pip install streamlit          # brings pandas; analysis/llm use only stdlib
+pip install streamlit          # brings pandas and altair; analysis/llm use only stdlib
 pip install numpy soundfile scipy faster-whisper   # for the Training plan tab's speech-to-text
 python generate_fake.py        # (Person A) create demo sessions, if needed
 streamlit run app.py
@@ -67,8 +67,9 @@ The user running it must be in the `video` group. With no cameras it still
 serves an info page explaining why.
 
 ## What the dashboard shows
-A strip under the header stays visible on every tab: who the patient is, their
-latest range of motion against their goal, the first thing to discuss, and
+The sidebar shows the selected patient at a glance: name, goals, history and
+milestones. A strip under the header stays visible on every tab: the latest
+session, the latest range of motion against the goal, the first thing to discuss, and
 whether the next session's settings are approved. The tabs, in order of use:
 Sessions, Next-session suggestion, Personal plan, Trends, Daily feedback,
 Summary & Q&A, Training plan, About. (The numbering below predates that order.)
