@@ -605,7 +605,9 @@ with st.sidebar:
 (tab_sessions, tab_suggest, tab_personal, tab_trends, tab_daily, tab_insight, tab_train,
  tab_guided, tab_home) = st.tabs(
     ["Sessions", "Next-session suggestion", "Personal plan", "Trends", "Daily feedback",
-     "Summary & Q&A", "Training plan", "Guided session", "About"]
+     "Summary & Q&A", "Training plan", "Guided session", "About"],
+    # keyed so the open tab survives a rerun: pressing a button no longer jumps back to Sessions
+    key="main_tabs", on_change="rerun",
 )
 
 
@@ -1196,6 +1198,44 @@ with tab_guided:
     elif busy_reason:
         st.error(busy_reason, icon=":material/block:")
 
+    # --- motor status (read-only, between runs) -----------------------------
+    with st.container(border=True):
+        m1, m2 = st.columns([3, 1])
+        m1.markdown("**Arm status**")
+        if m2.button("Check motors", key="g_motors", disabled=running, use_container_width=True,
+                     help="Reads each motor's temperature, voltage and torque state. "
+                          "Nothing moves. Available between runs."):
+            motors, why = arm_control.motor_status()
+            st.session_state["_g_motors"] = (motors, why, datetime.now().strftime("%H:%M:%S"))
+        motors, why, read_at = st.session_state.get("_g_motors", (None, None, None))
+        if why:
+            st.caption(why)
+        elif motors is None:
+            st.caption("Press Check motors to read temperatures before or after a run.")
+        else:
+            cols = st.columns(len(motors))
+            for col, mot in zip(cols, motors):
+                name = mot["name"].replace("_", " ").capitalize()
+                if not mot.get("reachable"):
+                    col.metric(name, "no reply")
+                    continue
+                col.metric(name, f"{mot['temp_c']} °C")
+                col.caption(("Motor on" if mot["torque_on"] else "Motor off") + f" · {mot['volts']:.1f} V")
+            hottest = max((mot["temp_c"] for mot in motors if mot.get("reachable")), default=0)
+            flagged = [f"{mot['name'].replace('_', ' ')}: {', '.join(arm_control.status_flags(mot['status']))}"
+                       for mot in motors if mot.get("reachable") and mot["status"]]
+            if hottest >= arm_control.TEMP_LIMIT_C:
+                st.error(f"A motor is at {hottest} °C, at or above the {arm_control.TEMP_LIMIT_C} °C limit. "
+                         "Let the arm cool before another run.")
+            elif hottest >= arm_control.TEMP_WARN_C:
+                st.warning(f"A motor is at {hottest} °C. The limit is {arm_control.TEMP_LIMIT_C} °C; "
+                           "give the arm a rest soon.")
+            if flagged:
+                st.warning("Motor error flags — " + "; ".join(flagged) + ".")
+            if any(mot.get("torque_on") for mot in motors):
+                st.info("Some motors are on and holding. Use Return to rest to let go and switch them off.")
+            st.caption(f"Read at {read_at}. Limit {arm_control.TEMP_LIMIT_C} °C.")
+
     # --- the request: voice or typed ---------------------------------------
     g_choice = st.radio(
         "Transcription",
@@ -1276,10 +1316,43 @@ with tab_guided:
         if c2.button("⏹ Stop", disabled=not running, key="g_stop",
                      use_container_width=True):
             if arm_control.stop():
-                st.warning("Stopping — the arm freezes where it is with the motors on and the "
-                           "grip closed. To let go and return to rest, run: "
-                           "bash ~/models/act_20261011/run_model.sh rest")
+                st.session_state["_g_notice"] = (
+                    "Stopped. The arm is holding where it is with the motors on and the grip "
+                    "closed. Press Return to rest to let go and bring it home.")
             st.rerun()
+
+    notice = st.session_state.pop("_g_notice", None)
+    if notice:
+        st.warning(notice)
+    if st.button("Return to rest", key="g_rest", disabled=running or (busy_reason is not None),
+                 help="Opens the gripper, moves the arm gently to its rest pose and switches "
+                      "the motors off. Take the hand out as the gripper opens."):
+        ok, info = arm_control.rest()
+        st.session_state["_g_notice"] = ("Returning to rest: the gripper opens, then the arm goes home."
+                                         if ok else str(info))
+        st.rerun()
+
+    # --- what the last run did ------------------------------------------------
+    last = None if running else arm_control.last_run()
+    if last and (last["grasp"] is not None):
+        st.markdown("**Last run**" + (" (dry run, simulated arm)" if last["dry"] else ""))
+        if last["grasp"]:
+            tries = last["missed"] + 1
+            st.success(f"Wrist grasp held after {last['grasp_seconds']:.0f} s"
+                       + (f", on attempt {tries}." if tries > 1 else ", first attempt."))
+        else:
+            st.error("No grasp, so the exercises were skipped"
+                     + (f" ({last['missed']} closes on nothing)." if last["missed"] else "."))
+        if last["movement"]:
+            st.dataframe(pd.DataFrame([{
+                "Exercise": mv["label"],
+                "Result": "Moved" if mv["moved"] else "Barely moved",
+                "Travel": f"{mv['travel_deg']:.0f}° at the {mv['joint'].replace('_', ' ')}",
+            } for mv in last["movement"]]), width="stretch", hide_index=True)
+            st.caption("Travel is read from the arm's own position log. A slide counts as moved "
+                       "from 20° of shoulder pan, a lift from 30° at the elbow.")
+        if last["ended"] == "grip lost":
+            st.warning("The grip was lost part-way, so the remaining exercises were skipped.")
 
     # --- live log -----------------------------------------------------------
     log_text = arm_control.tail(25)

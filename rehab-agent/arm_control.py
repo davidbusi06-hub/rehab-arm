@@ -15,6 +15,8 @@ auto-fires it from a transcript -- the UI shows the detected plan and a human mu
 press Start. Nothing here moves the arm until start() is called.
 """
 
+import csv
+import json
 import os
 import re
 import signal
@@ -26,6 +28,17 @@ SEQUENCE = MODELS_DIR / "sequence.py"
 LEROBOT_PY = "/home/aup/miniforge3/envs/lerobot/bin/python"
 LOG = Path("/home/aup/arm_guided.log")
 PIDFILE = Path("/home/aup/.arm_guided.pid")
+REST = MODELS_DIR / "rest.py"
+ARM_STATUS = Path(__file__).with_name("arm_status.py")
+
+# What the operator sees, sitting opposite the arm. The model names are mirrored:
+# slide_left sweeps to the operator's right.
+EXERCISE_LABELS = {"slide_left": "Right slide", "slide_right": "Left slide", "lift": "Lift"}
+# The joint that shows whether an exercise really moved, and how far counts as moving.
+_MOVEMENT = {"slide_left": ("shoulder_pan", 20.0), "slide_right": ("shoulder_pan", 20.0),
+             "lift": ("elbow_flex", 30.0)}
+TEMP_WARN_C, TEMP_LIMIT_C = 55, 65      # 65 is where the rehab controller stops a session
+_STATUS_BITS = {1: "voltage", 2: "sensor", 4: "temperature", 8: "current", 16: "angle limit", 32: "overload"}
 
 # A request's body region -> the ordered exercises sequence.py should run.
 # sequence.py always grasps the wrist first, then runs these, then returns to rest.
@@ -112,6 +125,8 @@ def arm_busy():
     except Exception:
         return None
     for line in out.splitlines():
+        if "pgrep" in line:
+            continue
         if "teleoperate" in line:
             return "Teleoperation is running — stop it first."
         if "lerobot-record" in line:
@@ -207,3 +222,128 @@ def tail(n=20):
     except Exception:
         return ""
     return "\n".join(lines[-n:])
+
+
+def _other_arm_program():
+    """A reason not to open the serial port right now, or None."""
+    if is_running():
+        return "A guided run is in progress."
+    busy = arm_busy()
+    if busy and "camera" not in busy:      # the camera stream does not use the arm's serial port
+        return busy
+    try:
+        out = subprocess.run(["pgrep", "-af", r"act_20261011/(sequence|rest)\.py"],
+                             capture_output=True, text=True).stdout
+    except Exception:
+        return None
+    if any("pgrep" not in line for line in out.splitlines()):
+        return "Another program is driving the arm."
+    return None
+
+
+def status_flags(status):
+    """Names of the error flags set in a motor's status byte."""
+    return [name for bit, name in _STATUS_BITS.items() if status & bit]
+
+
+def motor_status():
+    """Read every motor's temperature, voltage, load and torque state.
+
+    Returns (motors, None) or (None, reason). Read-only, but it opens the arm's serial
+    port, so it refuses while anything else is driving the arm.
+    """
+    blocked = _other_arm_program()
+    if blocked:
+        return None, blocked + " Motor status is read between runs."
+    try:
+        out = subprocess.run([LEROBOT_PY, str(ARM_STATUS)], capture_output=True, text=True, timeout=10)
+        data = json.loads(out.stdout.strip().splitlines()[-1])
+    except Exception as exc:
+        return None, f"Could not read the motors ({exc})."
+    if "error" in data:
+        return None, f"Could not read the motors: {data['error']}."
+    return data["motors"], None
+
+
+def rest():
+    """Let go and bring the arm to its rest pose, motors off (rest.py). Returns (ok, info)."""
+    blocked = _other_arm_program()
+    if blocked:
+        return False, blocked
+    with open(LOG, "ab") as logf:
+        proc = subprocess.Popen([LEROBOT_PY, str(REST)], cwd=str(MODELS_DIR), stdout=logf,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+    return True, proc.pid
+
+
+def summarize_log(text):
+    """What the last run's log says happened: grasp result, exercises reached, how it ended."""
+    out = {"dry": "[dry]" in text, "grasp": None, "grasp_seconds": None, "missed": 0,
+           "exercises": [], "ended": None, "tick_log": None}
+    for line in text.splitlines():
+        m = re.search(r"tick log: (\S+)", line)
+        if m:
+            out["tick_log"] = m.group(1)
+        m = re.search(r"grasp detected at ([\d.]+)s", line)
+        if m:
+            out["grasp"], out["grasp_seconds"] = True, float(m.group(1))
+        if "missed - the gripper closed on nothing" in line:
+            out["missed"] += 1
+        if "no grasp" in line:
+            out["grasp"] = False
+        m = re.search(r" \d+/\d+ (slide_left|slide_right|lift) \(", line)
+        if m:
+            out["exercises"].append(m.group(1))
+        if "wrist slip" in line or "skipping the rest of the exercises" in line:
+            out["ended"] = "grip lost"
+        if "stopped with Ctrl-C" in line:
+            out["ended"] = "stopped"
+        if "at rest" in line and out["ended"] is None:
+            out["ended"] = "at rest"
+    return out
+
+
+def movement(rows, exercises):
+    """How far the telling joint travelled in each exercise, from the per-tick log rows.
+
+    Each exercise is one unbroken stretch of "model" ticks; the last len(exercises)
+    stretches are the exercises (the earlier ones are grasp attempts).
+    Returns [{exercise, label, joint, travel_deg, moved}].
+    """
+    stretches, prev = [], None
+    for row in rows:
+        fresh = prev is None or row["phase"] != prev["phase"] or float(row["t"]) < float(prev["t"])
+        if fresh:
+            stretches.append([])
+        stretches[-1].append(row)
+        prev = row
+    model = [s for s in stretches if s[0]["phase"] == "model"]
+    if not exercises or len(model) < len(exercises):
+        return []
+    result = []
+    for name, stretch in zip(exercises, model[-len(exercises):]):
+        joint, threshold = _MOVEMENT[name]
+        values = [float(r[joint]) for r in stretch]
+        travel = max(values) - min(values)
+        result.append({"exercise": name, "label": EXERCISE_LABELS[name], "joint": joint,
+                       "travel_deg": round(travel, 1), "moved": travel >= threshold})
+    return result
+
+
+def last_run():
+    """Summary of the current or last run started here, with per-exercise movement."""
+    try:
+        text = LOG.read_text(errors="replace")
+    except Exception:
+        return None
+    if not text.strip():
+        return None
+    summary = summarize_log(text)
+    summary["movement"] = []
+    if summary["grasp"] and summary["tick_log"] and not is_running():
+        try:
+            with open(summary["tick_log"]) as f:
+                summary["movement"] = movement(list(csv.DictReader(f)), summary["exercises"])
+        except Exception:
+            pass
+    return summary
