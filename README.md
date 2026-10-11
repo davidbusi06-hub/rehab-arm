@@ -48,6 +48,12 @@ motion, reps, resistance, assist cap, time limit).
 Start with the exercised joint near mid-range; the session refuses to run if
 the start position is too close to the end of the encoder's range.
 
+It also refuses a target the joint cannot reach. The range swept during
+`lerobot-calibrate` is stored in each motor, and the target has to stay 3 deg
+short of that end stop in the direction of movement. If only one direction has
+room, the session says so before the first rep; moving the other way aborts it
+instead of letting the assist push into the stop.
+
 ## Closing the loop with the dashboard
 
 Point `--out` at the dashboard's `data/sessions` folder and each session shows
