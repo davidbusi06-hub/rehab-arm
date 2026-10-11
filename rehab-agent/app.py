@@ -792,6 +792,34 @@ with tab_guided:
         icon=":material/warning:",
     )
 
+    # --- always-visible EMERGENCY STOP --------------------------------------
+    # Not nested behind any state: one click halts the arm whenever this tab is open.
+    st.markdown(
+        "<style>"
+        ".st-key-estop button{background:#C62828!important;color:#fff!important;"
+        "border:0!important;font-weight:800!important;letter-spacing:.03em;"
+        "padding:.9rem 0!important;}"
+        ".st-key-estop button:hover{background:#B71C1C!important;}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+    if st.button("🛑 EMERGENCY STOP — halt the arm now", key="estop",
+                 use_container_width=True,
+                 help="Immediately interrupts any arm motion (guided run, model run, "
+                      "teleoperation). The arm stops and holds its position; use Return "
+                      "to rest to let go. The arm's physical power switch is the last resort."):
+        stopped = arm_control.emergency_stop()
+        if stopped:
+            st.session_state["_g_notice"] = (
+                "EMERGENCY STOP — halted " + ", ".join(stopped)
+                + ". The arm is holding its position with the motors on. "
+                "Press Return to rest to let go and bring it home.")
+            st.session_state["_g_say"] = "Emergency stop. I have halted and I am holding still."
+            st.session_state["_g_watch"] = False
+        else:
+            st.session_state["_g_notice"] = "Emergency stop pressed — nothing was running on the arm."
+        st.rerun()
+
     # --- current arm status -------------------------------------------------
     running = arm_control.is_running()
     busy_reason = None if running else arm_control.arm_busy()

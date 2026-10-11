@@ -215,6 +215,53 @@ def stop():
     return True
 
 
+def emergency_stop():
+    """Halt the arm NOW: interrupt our guided run AND any other arm process
+    (a CLI sequence/rest, a rollout, teleoperation), even if the UI didn't start it.
+
+    Sends SIGINT, so motion stops immediately and the arm holds its position with
+    the motors on (it does not go limp and drop a held forearm). Returns the list of
+    things it stopped. Use rest() afterwards to let go gently.
+
+    NOTE: this is a software stop and depends on the app being responsive. The
+    physical power switch / e-stop on the arm is the real last resort.
+    """
+    stopped = []
+    if stop():
+        stopped.append("guided run")
+    try:
+        out = subprocess.run(
+            ["pgrep", "-af",
+             r"act_20261011/(sequence|rest)\.py|lerobot-(rollout|teleoperate)"],
+            capture_output=True, text=True,
+        ).stdout
+    except Exception:
+        out = ""
+    me = _read_pid()
+    for line in out.splitlines():
+        if "pgrep" in line:
+            continue
+        head = line.split(" ", 1)[0]
+        if not head.isdigit():
+            continue
+        pid = int(head)
+        if me and pid == me:
+            continue  # our guided run, already handled by stop()
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGINT)
+        except Exception:
+            try:
+                os.kill(pid, signal.SIGINT)
+            except Exception:
+                continue
+        what = ("teleoperation" if "teleoperate" in line else
+                "a model run" if "rollout" in line else
+                "returning to rest" if "rest.py" in line else "a model run")
+        if what not in stopped:
+            stopped.append(what)
+    return stopped
+
+
 def tail(n=20):
     """Last n lines of the current/last run's log, for live status display."""
     try:
