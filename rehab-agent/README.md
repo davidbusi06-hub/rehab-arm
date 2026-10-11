@@ -50,6 +50,21 @@ ollama pull llama3.1:8b        # override with OLLAMA_HOST / OLLAMA_MODEL
 If Ollama is offline the dashboard still works — numbers and charts render
 and the prose tabs show an "insight engine offline" notice.
 
+### Live camera view (optional)
+
+`camera_stream.py` serves every camera on the machine as an MJPEG stream on
+`http://127.0.0.1:8503` (local only), so the dashboard can embed a live view
+with a plain `<img>` tag without opening the cameras itself:
+
+```bash
+pip install opencv-python-headless
+python camera_stream.py                 # auto-detect cameras
+CAM_INDICES=0,2 python camera_stream.py # or pick devices; CAM_PORT, CAM_FPS, ... also apply
+```
+
+The user running it must be in the `video` group. With no cameras it still
+serves an info page explaining why.
+
 ## What the dashboard shows
 1. **Sessions** — pick a session, see its report (range of motion, assist,
    peak resistance, reps completed vs target, safety stops) plus a table of all
